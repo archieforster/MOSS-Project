@@ -1,0 +1,6 @@
+["kids"
+  "house 1"
+  [["house 1"  "daily 06:05 0m"  "some school"  1]
+  ["some school"  "daily 06:10 0m"  "house 1"  1]
+
+   ]]

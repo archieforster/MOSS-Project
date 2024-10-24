@@ -1,0 +1,10 @@
+[[["normal"  "08:00"  "15m"] 
+   500 
+   ["agent"  "transit eastbound"] 
+   0.8 
+   ["agent"  "transit westbound"] 
+   0.2] 
+  ["0s"  10  ["agent"  "kids"]] 
+  ["07:54"  ["sealevel"  4]] 
+  ["07:55"  ["breach"  "a"]] 
+  ["07:50:00"  ["evacuate"]]]

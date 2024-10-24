@@ -1,0 +1,1008 @@
+globals [
+  vcell-d
+  agent-timestep
+  agents-drowned
+  agents-drownedA
+  agents-drownedC
+
+  agents-diverted
+  agents-isolated
+  ;;agents-isolatedA
+  ;;agents-isolatedC
+  agents-unparking
+  agents-driving
+  agent-types    ;; table[agent type name] of (list (array of class index) (array of list of (list probability, next state, start time, some?, destination)) (array of state name))
+  agent-total
+  evacuate?
+
+  Parked
+  Unparking
+  Driving
+  Dead
+
+  Startstate
+  Exitstate
+  Drownedstate
+  Thwartedstate
+  Evacuatestate
+  Resumestate
+  Specialstates
+]
+
+breed [agents agent]
+
+agents-own [
+  ve-action      ;; what agent is currently doing (Parked, Unparking or Driving).
+  ve-starttime    ;; Driving->starttime spec; Parked->starttime
+  ve-states      ;; state table.
+  ve-statenames    ;; array of state names, indexed by state, for debugging.
+  ve-type      ;; string - kind of agent.
+  ve-state      ;; current state.
+  ve-rlink      ;; link we're moving along.
+  ve-route      ;; list of nodes left on current route.
+  ve-route-depth  ;; maximum expected depth of nodes on route.
+  ve-destination    ;; current destination node, or destination spec when parked.
+  ve-pos      ;; distance from n0 on current road link, in vcell units
+  ve-patch      ;; patch we're currently on.
+  ve-speed      ;; m/s along current rlink
+  ve-wet-links    ;; table of rlinks this agent knows to be wet; map from link who-id to known depth.
+  ve-places      ;; array of locations (nodes) known to this agent.
+  ve-carpark    ;; node agent is parked on.
+  ve-thwartcount  ;; number of times we've continously been thwarted
+  ve-evacuate?    ;; evacuate message has been received by this agent?
+  ve-strandedlink  ;; link we were travelling along until we were thwarted.
+  ve-death-info    ;; either (list time patch link) or (list time node)
+]
+
+;; find the next plausible action for a agent to
+;; do after it's been interrupted to do something else.
+;; continue simulating state changes, but don't actually
+;; perform any actions until we've reached the real time.
+;; to resume-activity
+
+;; rlink command.
+to alloc-vcells
+  set rlink-vcells array2:new rlink-d nobody
+end
+
+to make-agent [what]
+  let vtype table:get agent-types what
+  let places item 0 vtype
+  let states item 1 vtype
+  let statenames item 2 vtype
+  create-agents 1 [
+    set hidden? true
+    set ve-type what
+    set ve-action Parked
+    set ve-states states
+    set ve-statenames statenames
+    set ve-state Startstate
+    set ve-rlink nobody
+    set ve-route []
+    set ve-destination []
+    set ve-pos 0
+    set ve-patch nobody
+    set ve-speed 0
+    set ve-wet-links table:make
+    set ve-evacuate? false
+    set ve-death-info []
+    let np array2:length places
+    set ve-places array2:new np nobody
+    let i 0
+    while [i < np] [
+      let n random-destination (array2:item places i)
+      if n = nobody [
+        print (word "-- agent cannot find any " (array2:item building-class-name (array2:item places i)))
+        set agent-total agent-total - 1
+        die
+      ]
+      array2:set ve-places i n
+      set i i + 1
+    ]
+    set ve-patch nobody
+    set ve-state Startstate
+    set ve-thwartcount 0
+
+    ;; move to our first location, then decide what we're going to do after that.
+    advance-state
+    decide-destination
+    set ve-carpark ve-destination
+;;print (word " starting place: " ve-carpark)
+    advance-state
+
+    update-agent-position 0
+    set agent-total agent-total + 1
+  ]
+   ask agents [
+      if ve-type = "Men" [
+      set color 126
+    ]
+    ]
+end
+
+;; what patch is a agent current in, if any?
+to-report agent-patch
+  if ve-rlink = nobody [
+    if ve-carpark = nobody [
+      report nobody
+    ]
+    report patch [node-x] of ve-carpark [node-y] of ve-carpark
+  ]
+  let cov [road-covering] of [rlink-road] of ve-rlink
+  let ncov array2:length cov
+  if ncov = 0 [
+    report nobody
+  ]
+
+  ;; fairly spurious mapping of linear distance along road to pixel.
+  let r ve-pos / [rlink-d] of ve-rlink
+  if r > 1 [
+    set r 1
+  ]
+  let idx round (r * (ncov - 1))
+  if [rlink-reverse?] of ve-rlink [
+    set idx (ncov - 1) - idx
+  ]
+  report array2:item cov idx
+end
+
+to update-agent-position [old-speed]
+  let new-speed ve-speed
+  let p agent-patch
+
+  ifelse p != ve-patch [
+    if ve-patch != nobody [
+      ask ve-patch [
+        set agent-count agent-count - 1
+        set total-speed total-speed - old-speed
+        colour-patch
+      ]
+    ]
+    if p != nobody [
+      ask p [
+        set agent-count  agent-count + 1
+        set total-speed total-speed + new-speed
+        colour-patch
+      ]
+    ]
+    set ve-patch p
+  ] [
+    if old-speed != new-speed and p != nobody [
+      ask p [
+        set total-speed total-speed - old-speed + new-speed
+        colour-patch
+      ]
+    ]
+  ]
+end
+
+;; ve-destination contains a destination specification;
+;; mutate it into an actual destination node.
+to decide-destination
+  let some? (item 0 ve-destination)
+  let destid (item 1 ve-destination)
+  ifelse some? [
+    set ve-destination random-destination destid
+  ] [
+    set ve-destination array2:item ve-places destid
+  ]
+;;print (word "decided destination " ve-destination)
+end
+
+;; use (approximation to) current patch, if possible.
+;; see agent-step.
+to-report ve-patch-depth
+  if ve-patch = nobody [
+    report [rlink-depth] of ve-rlink
+  ]
+  let elev ifelse-value (ve-rlink = nobody) [0] [[road-elevation] of [rlink-road] of ve-rlink]
+  report [known-depth] of ve-patch - elev
+end
+
+to agent-step
+  if ve-evacuate? [
+    agent-evacuate
+    set ve-evacuate? false
+  ]
+
+  if ve-action = Dead [
+    stop
+  ]
+     if ve-patch != nobody and ve-type = "kids" and ve-patch-depth > drown-depthC [
+       ifelse ve-action = Driving [
+           set ve-death-info (list "drowned-driving" ticks ve-patch ve-rlink)
+          agent-park [rlink-n1] of ve-rlink
+        ] [
+          set ve-death-info (list "drowned-parked" ticks ve-carpark)
+        ]
+        set ve-state Drownedstate
+        advance-state
+  ]
+     if ve-patch != nobody and ve-type = "teenagers" and ve-patch-depth > drown-depthA [
+       ifelse ve-action = Driving [
+           set ve-death-info (list "drowned-driving" ticks ve-patch ve-rlink)
+          agent-park [rlink-n1] of ve-rlink
+        ] [
+          set ve-death-info (list "drowned-parked" ticks ve-carpark)
+        ]
+        set ve-state Drownedstate
+        advance-state
+  ]
+     if ve-patch != nobody and ve-type = "Men" and ve-patch-depth > drown-depthA [
+       ifelse ve-action = Driving [
+           set ve-death-info (list "drowned-driving" ticks ve-patch ve-rlink)
+          agent-park [rlink-n1] of ve-rlink
+        ] [
+          set ve-death-info (list "drowned-parked" ticks ve-carpark)
+        ]
+        set ve-state Drownedstate
+        advance-state
+  ]
+  if ve-patch != nobody and ve-type = "Women" and ve-patch-depth > drown-depthA [
+       ifelse ve-action = Driving [
+           set ve-death-info (list "drowned-driving" ticks ve-patch ve-rlink)
+          agent-park [rlink-n1] of ve-rlink
+        ] [
+          set ve-death-info (list "drowned-parked" ticks ve-carpark)
+        ]
+        set ve-state Drownedstate
+        advance-state
+  ]
+
+  ifelse ve-action = Parked [
+    ;; XXX if event happened, adjust state...
+    if not ve-evacuate? and ticks >= ve-starttime [
+;;print (word "emerging action: " ve-action "; state " state-name "; dest " ve-destination "; t " ticks "/" ve-starttime)
+      decide-destination
+;;print (word "decided destination: " ve-destination)
+      decide-route ve-carpark 0
+;;print (word "decided route: " ve-route)
+      ifelse ve-route = [] [
+        set ve-state Thwartedstate
+        advance-state
+      ] [
+        set ve-action Unparking
+        set agents-unparking agents-unparking + 1
+      ]
+    ]
+  ] [
+    ;; wait until  there's space at the start of our route; then
+    ;; move onto the road and start driving
+    if ve-action = Unparking [
+;;print (word "unparking action: " ve-action "; state " state-name "; dest " ve-destination "; t " ticks "/" ve-starttime)
+      let lnk first ve-route
+      if [rlink-vcount] of lnk = 0 or (array2:item ([rlink-vcells] of lnk) 0) = nobody [
+        ask lnk [
+          if rlink-vcount = 0 [
+            alloc-vcells
+          ]
+          set rlink-vcount rlink-vcount + 1
+          set rlink-agent-total rlink-agent-total + 1
+        ]
+        array2:set ([rlink-vcells] of lnk) 0 self
+        set ve-action Driving
+        set ve-pos 0
+        set ve-speed 0
+        set ve-rlink lnk
+        set ve-route but-first ve-route
+        ask lnk [
+;;print (word [node-oid] of rlink-n0 " -> (" [road-oid] of rlink-road ") -> " [node-oid] of rlink-n1 " start")
+        ]
+        set agents-driving agents-driving + 1
+        set agents-unparking agents-unparking - 1
+      ]
+    ]
+    if ve-action = Driving [
+      agent-move
+      ;; if we're at the end of a link with zero velocity,
+      ;; we might have encountered a flood or the end of
+      ;; our route.
+      if ve-speed = 0 and (ve-pos + 1) = [rlink-d] of ve-rlink [
+        ;; if we're about to drive into a flood, reroute if possible.
+        if ve-route != [] and [rlink-depth] of (first ve-route) > ve-route-depth [
+          decide-route [rlink-n1] of ve-rlink ve-route-depth
+          if ve-route = [] [
+            set ve-state Thwartedstate
+            set ve-strandedlink ve-rlink
+          ]
+        ]
+        if ve-route = [] [
+          agent-park [rlink-n1] of ve-rlink
+          advance-state
+;;print (word "next action: " ve-action "; state " state-name "; dest " ve-destination "; t " ticks "/" ve-starttime)
+        ]
+        update-agent-position 0
+      ]
+    ]
+  ]
+end
+
+to-report state-name
+  report array2:item ve-statenames ve-state
+end
+
+to agent-evacuate
+;;show "evacuating"
+  let old-state ve-state
+  set ve-state Evacuatestate
+  let transition next-transition
+
+  ;; if we have an explicit rule for the evacution command, then obey it,
+  ;; otherwise ignore it.
+  ifelse transition != [] and first transition != Resumestate [
+;;show "actually going somewhere..."
+    ifelse ve-action = Driving [
+      agent-park [rlink-n1] of ve-rlink
+    ] [
+      if ve-action = Unparking [
+        set agents-unparking agents-unparking - 1
+        set ve-action Parked
+        set ve-route []
+        set ve-destination nobody
+      ]
+    ]
+    advance-to-transition transition
+;;show (word "destination: " ve-destination)
+  ] [
+;;show "no explicit evacuate rule"
+    set ve-state old-state
+  ]
+end
+
+;; decide how we're going to get to our destination from n0.
+to decide-route [n0 threshold-depth]
+  if ve-route = [] [
+    set ve-route find-path n0 ve-destination ve-wet-links threshold-depth
+  ]
+  let diverted 0
+  while [ve-route != [] and [rlink-depth] of (first ve-route) > threshold-depth] [
+    table:put ve-wet-links ([who] of (first ve-route)) [rlink-depth] of (first ve-route)
+    set ve-route find-path n0 ve-destination ve-wet-links threshold-depth
+    set diverted 1
+  ]
+  set ve-route-depth threshold-depth
+
+  if ve-route != [] [
+    set agents-diverted agents-diverted + diverted
+  ]
+
+  ;; if we can't find a dry route, try a moderately wet one.
+  if ve-route = [] and threshold-depth < drown-depthC [
+    decide-route n0 drown-depthC
+  ]
+;;print (word "route: " ve-route)
+end
+
+to-report max-agent-speed
+  let s 0
+  if ve-type = "kids"[
+  ask ve-rlink [
+    let d rlink-depth
+    ;; fast check of rlink depth - almost all cars will be on dry links.
+      ifelse d > 0 [
+        set d [ve-patch-depth] of myself
+       ifelse  d > drown-depthC [
+          set s 0
+        ] [ifelse d > 0 [
+          set s 1
+        ] [
+          set s [road-speed / 2] of rlink-road
+        ]]
+      ] [
+        set s [road-speed / 2] of rlink-road
+      ]
+    ]
+    ]
+    if ve-type = "teenagers"[
+    ask ve-rlink [
+    let d rlink-depth
+    ;; fast check of rlink depth - almost all cars will be on dry links.
+      ifelse d > 0 [
+        set d [ve-patch-depth] of myself
+       ifelse  d > drown-depthA [
+          set s 0
+        ] [ifelse d > 0 [
+          set s 1
+        ] [
+          set s [road-speed] of rlink-road
+        ]]
+      ] [
+        set s [road-speed] of rlink-road
+      ]
+    ]
+    ]
+    if ve-type = "Men"[
+    ask ve-rlink [
+    let d rlink-depth
+    ;; fast check of rlink depth - almost all cars will be on dry links.
+      ifelse d > 0 [
+        set d [ve-patch-depth] of myself
+       ifelse  d > drown-depthA [
+          set s 0
+        ] [ifelse d > 0 [
+          set s 1
+        ] [
+          set s [road-speed] of rlink-road
+        ]]
+      ] [
+        set s [road-speed] of rlink-road
+      ]
+    ]
+    ]
+    if ve-type = "Women"[
+    ask ve-rlink [
+    let d rlink-depth
+    ;; fast check of rlink depth - almost all cars will be on dry links.
+      ifelse d > 0 [
+        set d [ve-patch-depth] of myself
+       ifelse  d > drown-depthA [
+          set s 0
+        ] [ifelse d > 0 [
+          set s 1
+        ] [
+          set s [road-speed] of rlink-road
+        ]]
+      ] [
+        set s [road-speed] of rlink-road
+      ]
+    ]
+    ]
+  report s
+end
+
+;; Nagel-Schreckenberg agent movement, except that
+;; instead of doing all the steps in parallel, each agent moves
+;; independently. the ask randomisation makes this not too bad,
+;; and it makes things much easier at junctions.
+to agent-move
+;;print (word "agent-move link: " ve-rlink " pos: " ve-pos " speed: " ve-speed)
+  let old-speed ve-speed
+  let maxv max-agent-speed
+  ifelse ve-speed < maxv [
+    set ve-speed (ve-speed + 1)
+  ] [
+    ;; we can be moving faster than max-agent-speed if
+    ;; the link becomes wet as we are moving along it.
+    set ve-speed maxv
+  ]
+  set ve-speed (agent-distance-ahead (ve-pos + 1) ve-rlink ve-route ve-speed)
+;;print (word "distance ahead: " ve-speed)
+  if ve-speed > 0 and random-float 1 < 0.1 [
+    set ve-speed (ve-speed - 1)
+  ]
+  if ve-speed > 0 [
+    let old-rlink ve-rlink
+    ask ve-rlink [
+      set rlink-vcount (rlink-vcount - 1)
+      array2:set rlink-vcells ([ve-pos] of myself) nobody
+    ]
+    ;; move onwards
+    let v ve-speed
+    let p ve-speed
+    ask ve-rlink [
+      set rlink-velocity-total rlink-velocity-total + v
+      set rlink-vsteps rlink-vsteps + 1
+    ]
+    while [ve-pos + p >= [rlink-d] of ve-rlink] [
+      set p round (p - (([rlink-d] of ve-rlink) - ve-pos))
+      set ve-pos 0
+      set ve-rlink (first ve-route)
+      ask ve-rlink [
+        set rlink-agent-total rlink-agent-total + 1
+        set rlink-velocity-total rlink-velocity-total + v
+        set rlink-vsteps rlink-vsteps + 1
+;;print (word [node-oid] of rlink-n0 " -> (" [road-oid] of rlink-road ") -> " [node-oid] of rlink-n1)
+      ]
+      set ve-route (but-first ve-route)
+    ]
+    set ve-pos (ve-pos + p)
+    ask ve-rlink [
+;;print (word "rlink agent-count: " rlink-vcount)
+      if rlink-vcells = [] [
+;;print (word "alloc vcells")
+        alloc-vcells
+      ]
+      set rlink-vcount (rlink-vcount + 1)
+      if array2:item rlink-vcells [ve-pos] of myself != nobody [
+        ;;abort (word "joint occupancy of " self " at " [ve-pos] of myself)
+        ;;print (word "updated; link: " ve-rlink " pos: " ve-pos " speed: " ve-speed)
+      ]
+      array2:set rlink-vcells ([ve-pos] of myself) myself
+    ]
+    ;; save space by deallocating cells for links with no agents.
+    ask old-rlink [
+      if rlink-vcount = 0 [
+        set rlink-vcells []
+      ]
+    ]
+;;print (word "updated; link: " ve-rlink " pos: " ve-pos " speed: " ve-speed)
+  ]
+  update-agent-position old-speed
+end
+
+to agent-park [n]
+  if ve-rlink != nobody [
+    ask ve-rlink [
+      set rlink-vcount (rlink-vcount - 1)
+      array2:set rlink-vcells ([ve-pos] of myself) nobody
+    ]
+  ]
+  set ve-route []
+  set ve-rlink nobody
+  let old-speed ve-speed
+  set ve-speed 0
+  set ve-carpark n
+  update-agent-position old-speed
+  if ve-action = Driving [
+    set agents-driving agents-driving - 1
+  ]
+  set ve-action Parked
+  if n = nobody [
+    set agent-total agent-total - 1
+    set ve-action Dead
+  ]
+;;print (word "parked at " n)
+end
+
+to decide-starttime [spec]
+  let daily? (item 0 spec)
+  let avg (item 1 spec)
+  let std (item 2 spec)
+
+  let r random-normal 0 std
+  ifelse daily? [
+    set ve-starttime ticks - (ticks mod (24 * 60 * 60)) + avg + r
+    if ve-starttime < ticks [
+      set ve-starttime ve-starttime + (24 * 60 * 60)
+    ]
+  ] [
+    set ve-starttime ticks + r
+  ]
+end
+
+;; work out the next transition and return it
+;; [next state, start time spec, some?, dest spec]
+;; or [] if no next state found
+to-report next-transition
+  let r random-float 1
+  let transitions array2:item ve-states ve-state
+  let newstate []
+  if transitions != [] [
+    while [r > 0] [
+      set newstate first transitions
+      set r r - (first newstate)
+      set transitions but-first transitions
+    ]
+  ]
+  ifelse newstate = [] [
+    report []
+  ] [
+    report but-first newstate
+  ]
+end
+
+;; advance a agent's state machine,
+;; choose the new destination and when to leave for it, but don't decide
+;; on the exact destination how to get there
+;; until the time comes to actually depart.
+;; sets ve-destination and ve-starttime
+to advance-state
+  if ve-action != Parked or ve-speed != 0 [
+    abort "agent cannot change state unless it is parked"
+  ]
+  advance-to-transition next-transition
+end
+
+;; change to new agent state.
+;; precondition: agent is parked.
+to advance-to-transition [newstate]
+  ;; if there's no state transition given from the current state,
+  ;; do something appropriate.
+  if newstate = [] [
+    ifelse ve-state = Drownedstate [
+      if ve-type = "kids" [
+         set agents-drownedC agents-drownedC + 1
+         set agents-drowned agents-drowned + 1
+    ]
+      if ve-type = "teenagers" [
+         set agents-drownedA agents-drownedA + 1
+         set agents-drowned agents-drowned + 1
+    ]
+    if ve-type = "Men" [
+         set agents-drownedA agents-drownedA + 1
+         set agents-drowned agents-drowned + 1
+    ]
+    if ve-type = "Women" [
+         set agents-drownedA agents-drownedA + 1
+         set agents-drowned agents-drowned + 1
+    ]]
+     [ifelse ve-state = Thwartedstate [
+      set ve-death-info (list "stranded" ticks ve-carpark)
+      set agents-isolated agents-isolated + 1
+      if ve-strandedlink != nobody [
+        if ve-type = "kids"[
+        ask ve-strandedlink [
+          set rlink-strandedC rlink-strandedC + 1
+          set rlink-stranded rlink-stranded + 1
+        ]
+      ]
+      if ve-type = "teenagers"[
+        ask ve-strandedlink [
+          set rlink-strandedA rlink-strandedA + 1
+          set rlink-stranded rlink-stranded + 1
+        ]
+      ]
+      if ve-type = "Men"[
+        ask ve-strandedlink [
+          set rlink-strandedA rlink-strandedA + 1
+          set rlink-stranded rlink-stranded + 1
+        ]
+      ]
+      if ve-type = "Women"[
+        ask ve-strandedlink [
+          set rlink-strandedA rlink-strandedA + 1
+          set rlink-stranded rlink-stranded + 1
+        ]
+      ]
+    ]] [
+      set ve-death-info (list "bad-state")
+      print (word "-- failed to find a new state from " array2:item ve-states ve-state)
+    ]]
+    agent-park nobody
+    stop
+  ]
+  ;; newstate :: (next state, start time, some?, destination)
+
+  set ve-state first newstate
+  ;; if there's an explicit state transition given for when a agent
+  ;; is thwarted, and we've attempted it quite a few times,
+  ;; then we give up anyway and count ourselves as stranded.
+  ifelse ve-state = Thwartedstate [
+    set ve-thwartcount ve-thwartcount + 1
+    if ve-thwartcount > 10 [
+      set ve-death-info (list "stranded" ve-carpark)
+      set agents-isolated agents-isolated + 1
+      agent-park nobody
+      stop
+    ]
+  ] [ifelse ve-state = Exitstate [
+    agent-park nobody
+    ;; we don't need to keep info about exited agents
+    die
+  ] [
+    set ve-thwartcount 0
+    set ve-strandedlink nobody
+  ]]
+  set newstate but-first newstate
+
+  decide-starttime (first newstate)
+  set newstate but-first newstate
+
+  set ve-destination newstate
+end
+
+;; agent reporter (recursive).
+;; count contiguous empty cells along route (up to max-dist cells distance).
+to-report agent-distance-ahead [pos lnk route max-dist]
+  let i pos
+  ifelse [rlink-vcount] of lnk = 0 [
+    ;; totally empty lnk, so don't bother scanning
+    set i [rlink-d] of lnk
+  ] [
+    let vcells [rlink-vcells] of lnk
+    let n array2:length vcells
+    if n > pos + max-dist [
+      set n pos + max-dist
+    ]
+    while [i < n] [
+      if array2:item vcells i != nobody [
+        report (i - pos)
+      ]
+      set i (i + 1)
+    ]
+  ]
+  if i >= pos + max-dist [
+    report max-dist
+  ]
+  if route = [] [
+    ;; can't go beyond the end of our route, report space
+    ;; ahead only up to our destination
+    ;; so agent will slow down and stop at exactly its final
+    ;; destination...
+    report (i - pos)
+  ]
+  ;; don't venture onto a link that's flooded more than we can bear.
+  if [rlink-depth] of first route > ve-route-depth [
+    report (i - pos)
+  ]
+  report ((i - pos) + agent-distance-ahead 0 (first route) (but-first route) (max-dist - (i - pos)))
+end
+
+;; states is (array) tuple of (max-state-id, table[state-name] of state-id)
+to add-state [states name]
+  let max-id (array2:item states 0)
+  let state-names (array2:item states 1)
+  if not table:has-key? state-names name [
+    table:put state-names name max-id
+    array2:set states 0 (max-id + 1)
+  ]
+end
+
+;; preprocess a state machine specification.
+;; spec is list of (state, starttime, new state, probability) (list) tuples
+;; ["home 1", "daily 8h 15m", "school", 0.8],
+;; produce (list) tuple of (array of int, array of[probability, new state, start time, some?, destination], array of string)
+;; where the first array of string is a table of building class indices of non-some destinations;
+;; start time is (list) tuple of (daily? t1 t2)
+;; if a destination is "some", the destination in the table
+;; will be a building class index, otherwise it's an index into the first array.
+;; starting state is always 0.
+;; the last array gives the state names, indexed by state.
+to-report compiled-states [spec start]
+  let states array2:from-list (list 0 table:make)
+  ;; first go through and assign ids to all the states.
+  ;; first state is just a dummy transition to the actual first state,
+  ;; so we can use the normal destination-deciding mechanism (advance-state)
+  ;; to move to the first location. NB. the order of the first three lines
+  ;; corresponds to the values of the Startedstate, Exitstate and Thwartedstate constants.
+  add-state states 0
+  add-state states "exit"
+  add-state states "thwarted"
+  add-state states "evacuate"
+  add-state states "resume"
+  add-state states "drown"
+  add-state states start
+  foreach spec [
+    if length ? != 4 or not is-string? (item 0 ?) or not is-string? (item 2 ?) [
+      abort (word "invalid state specification " ?)
+    ]
+    add-state states (item 0 ?)
+    add-state states (item 2 ?)
+  ]
+  ;; fake an initial state to bootstrap our initial location
+  set spec fput (list 0 "0s 0s" start 1) spec
+
+  let max-id array2:item states 0
+  let cstates array2:new max-id []
+  let max-place-id 0
+  let places table:make
+  let tbl (array2:item states 1)
+  foreach spec [
+    let id (table:get tbl (item 0 ?))
+    let dststate (item 2 ?)
+    let dest (parse-destination dststate)
+    let some? (first dest)
+    set dest (first but-first dest)
+    let nextstate (table:get tbl (dststate))
+    ifelse nextstate >= Specialstates [
+      ifelse some? [
+        set dest table:get building-class-index dest
+      ] [
+        ifelse table:has-key? places dest [
+          set dest (first table:get places dest)
+        ] [
+          table:put places dest (list max-place-id (table:get building-class-index dest))
+          set dest max-place-id
+          set max-place-id (max-place-id + 1)
+        ]
+      ]
+    ] [
+      set dest "nowhere"
+    ]
+    let weight (item 3 ?)
+    let starttime (parse-starttime (item 1 ?))
+    if not is-number? weight [
+      abort (word "invalid weight in state specification " ?)
+    ]
+    array2:set cstates id (fput (list weight nextstate starttime some? dest) (array2:item cstates id))
+  ]
+  ;; (optimisation) sort transitions greatest probability first
+  let i 0
+  while [i < max-id] [
+    let transitions (array2:item cstates i)
+    if transitions = [] and i >= Specialstates [
+      abort (word "state with no transitions")
+    ]
+    ;; normalise the weights so that they sum to 1.
+    let totweight sum (map [first ?] transitions)
+    if totweight = 0 [
+      set totweight 1
+    ]
+    array2:set cstates i (map [fput ((first ?) / totweight) (but-first ?)] (sort-by [first ?1 > first ?2] transitions))
+    set i (i + 1)
+  ]
+  let placetable array2:new max-place-id 0
+  foreach table:keys places [
+    let p table:get places ?
+    array2:set placetable (first p) (first but-first p)
+  ]
+  let state-names array2:new max-id ""
+  foreach table:keys tbl [
+    if is-string? ? [
+      array2:set state-names (table:get tbl ?) ?
+    ]
+  ]
+  report (list placetable cstates state-names)
+end
+
+to read-agent-types
+  let filename (word scenario "/agents.txt")
+  print (word "-- reading " filename)
+  file-open filename
+
+  set agent-types table:make
+  while [not file-at-end?] [
+    let z file-read
+    if length z != 3 [
+      abort (word "invalid agent type: " z)
+    ]
+    let name first z
+    set z but-first z
+    let start first z
+    set z but-first z
+    let transitions first z
+    table:put agent-types name (compiled-states transitions start)
+  ]
+end
+
+to-report parse-starttime [s]
+;; (daily)? time1 time2 -> [daily? t1 t2]
+  let toks tokenize s " "
+  if toks = [] [
+    abort (word "invalid start time " s)
+  ]
+  let daily? false
+  if first toks = "daily" [
+    set daily? true
+    set toks but-first toks
+  ]
+  if length toks != 2 [
+    abort (word "invalid start time " s)
+  ]
+  report (list daily? (parse-time (first toks)) (parse-time (first but-first toks)))
+end
+
+to-report parse-destination [s]
+;; (some)? [^0-9]+( [0-9]+) -> [some? class-id ident]
+  let toks tokenize s " "
+  if toks = [] [
+    abort (word "invalid destination/state " s)
+  ]
+  let some? false
+  if first toks = "some" [
+    set some? true
+    set toks but-first toks
+  ]
+  let ident ""
+  let id-str last toks
+  ;; ignore final discrimination identifier - it's not used.
+  if is-digit? (item 0 id-str) [
+    set toks but-last toks
+  ]
+  report (list some? (join-strings toks " "))
+end
+
+to-report is-digit? [d]
+  report d >= "0" and d <= "9"
+end
+
+to-report join-strings [sl sep]
+  if sl = [] [
+    report ""
+  ]
+  let s first sl
+  foreach but-first sl [
+    set s (word s sep ?)
+  ]
+  report s
+end
+
+to-report dec2 [n]
+  report word int (n / 10) (n mod 10)
+end
+
+to-report time-string [t]
+  let s int (t mod 60)
+  set t t / 60
+  let m int (t mod 60)
+  set t t / 60
+  let h int (t mod 24)
+  let d int (t / 24)
+
+  let ts (word dec2 h ":" dec2 m ":" dec2 s)
+  if d > 0 [
+    set ts (word "d" d " " ts)
+  ]
+  report ts
+end
+
+to-report parse-time [s]
+  let n length s
+  if n = 0 [
+    abort "invalid time string (empty)"
+  ]
+  ifelse member? ":" s [
+    let tl reverse tokenize s ":"
+    set n length tl
+    ifelse n = 2 [
+      set tl (fput "0" tl)
+    ] [
+      if n > 3 or n < 2 [
+        abort "invalid time string (too many fields)"
+      ]
+    ]
+    let m 1
+    let t 0
+    foreach tl [
+      set t (t + m * read-from-string ?)
+      set m (m * 60)
+    ]
+    report t
+  ] [
+    let suff item (n - 1) s
+    let m 0
+    ifelse suff = "h" [
+      set m 60 * 60
+    ] [
+      ifelse suff = "m" [
+        set m 60
+      ] [
+        ifelse suff = "s" [
+          set m 1
+        ] [
+          abort (word "invalid time string (" s ")")
+        ]
+      ]
+    ]
+    let t read-from-string (substring s 0 (n - 1))
+    if not is-number? t [
+      abort (word "invalid time string (" s ")")
+    ]
+    report t * m
+  ]
+end
+
+to-report tokenize [s sepchar]
+  let t []
+  let i 0
+  let n length s
+  loop [
+    while [i < n and item i s = sepchar] [
+      set i i + 1
+    ]
+    if i >= n [
+      report reverse t
+    ]
+    let start i
+    while [i < n and item i s != sepchar] [
+      set i i + 1
+    ]
+    set t fput (substring s start i) t
+  ]
+end
+
+to agent-init
+  set Parked 0
+  set Unparking 1
+  set Driving 2
+  set Dead -1
+
+  ;; N.B. the numerical order of these corresponds with the order that the states
+  ;; are added using add-state
+  set Startstate 0
+  set Exitstate 1
+  set Thwartedstate 2
+  set Evacuatestate 3
+  set Resumestate 4
+  set Drownedstate 5
+  set Specialstates 6
+
+  set agent-timestep 0.29826  ;; 8m at 2.4mph
+  set vcell-d (map2patchd 0.3)    ;; 2m agent cells
+
+  set evacuate? false
+  set agent-total 0
+
+  read-agent-types
+end
+

@@ -1,0 +1,34 @@
+["kids & work" 
+  "home 1" 
+  [["home 1"  "daily 7:46 0m"  "school"  1] 
+   ["school"  "5m 1m"  "work"  0.9] 
+   ["school"  "5m 1m"  "some shop"  0.1] 
+   ["some shop"  "2h 1h"  "work"  1] 
+   ["work"  "daily 17h 15m"  "home 1"  0.75] 
+   ["work"  "daily 17h 15m"  "supermarket"  0.15] 
+   ["work"  "daily 17h 15m"  "home 2"  0.1] 
+   ["supermarket"  "45m 10m"  "home 1"  1] 
+   ["home 2"  "daily 20h 2h"  "some recreation"  0.1] 
+   ["some recreation"  "3h 1h"  "home 1"  1] 
+   ["evacuate"  "5m 1m"  "some evacuation point"  0.9] 
+   ["evacuate"  "0s 0s"  "resume"  0.1] 
+   ["some evacuation point"  "daily 4h 1h"  "home 1"  1]]] 
+ ["test2" 
+  "home" 
+  [["home"  "0m 0m"  "school"  1] 
+   ["school"  "0m 0m"  "home"  1] 
+   ["evacuate"  "0m 0m"  "some evacuation point"  0.9] 
+   ["evacuate"  "0s 0s"  "resume"  0.1] 
+   ["some evacuation point"  "0m 0m"  "home"  1]]] 
+ ["transit eastbound" 
+  "A55 west" 
+  [["A55 west"  "0s 0s"  "A55 east"  1]  ["A55 east"  "0s 0s"  "exit"  1]]] 
+ ["transit westbound" 
+  "A55 east" 
+  [["A55 east"  "0s 0s"  "A55 west"  1]  ["A55 west"  "0s 0s"  "exit"  1]]] 
+ ["test" 
+  "towyn test" 
+  [["towyn test"  "0s 0s"  "rhyl test"  1] 
+   ["rhyl test"  "0s 0s"  "towyn test"  1] 
+   ["evacuate"  "0s 0s"  "some evacuation point"  1] 
+   ["some evacuation point"  "5m 1m"  "towyn test"  1]]]
