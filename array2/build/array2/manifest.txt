@@ -1,3 +1,0 @@
-Manifest-Version: 1.0
-Extension-Name: array2
-Class-Manager: Array2Extension

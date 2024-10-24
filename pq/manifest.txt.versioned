@@ -1,4 +1,0 @@
-Manifest-Version: 1.0
-Extension-Name: pq
-Class-Manager: org.nlogo.extensions.pq.PriorityQueueExtension
-NetLogo-Extension-API-Version: 4.0

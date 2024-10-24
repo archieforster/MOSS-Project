@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Extension-Name: array2
+Class-Manager: Array2Extension
+NetLogo-Extension-API-Version: 4.0
