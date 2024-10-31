@@ -24,8 +24,8 @@ end
 
 to setup-world
 
-  let roads-dataset gis:load-dataset "C:\\Users\\archi\\Downloads\\oproad_essh_gb\\data\\TG_RoadLink.shp"
-  let buildings-dataset gis:load-dataset "C:\\Users\\archi\\Downloads\\vmdvec_tg\\OS VectorMap District (ESRI Shape File) TG\\data\\TG_Building.shp"
+  let roads-dataset gis:load-dataset ".\\data\\TG_RoadLink.shp"
+  let buildings-dataset gis:load-dataset ".\\data\\TG_Building.shp"
 
   gis:set-world-envelope (gis:envelope-union-of (gis:envelope-of roads-dataset) (gis:envelope-of buildings-dataset))
   gis:set-world-envelope [641544 653476 300000 319072]
@@ -47,7 +47,6 @@ to setup-world
 
 
 end
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 179
