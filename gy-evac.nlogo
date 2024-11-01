@@ -1,5 +1,6 @@
 extensions[
   gis
+  py
 ]
 
 ;Road links/connections, mediums agents can travel along
@@ -20,6 +21,7 @@ buildings-own[
 
 to clear
  clear-drawing
+ clear-all
 end
 
 to setup-world
@@ -44,6 +46,17 @@ to setup-world
       set number-of-agents 0
     ]
   ]
+
+  py:setup py:python (py:run
+    "from path_nav import *"
+    "navigator = RoadGraph()"
+    "evac_node = '081F9FA5-31D7-4E17-87E2-6197C03B7595'"
+    "navigator.setEvacNode(evac_node)"
+    "navigator.calculatePaths()"
+    "print('Calculated all routes!')"
+  )
+
+  py:run "print(navigator.getPathFromNode('42A5574A-8B9B-4E0D-9402-C1684ABA33FF'))"
 
 
 end
