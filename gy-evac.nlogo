@@ -55,31 +55,33 @@ to setup-world
       set node-1 (gis:property-value r "STARTNODE")
       set node-2 (gis:property-value r "ENDNODE")
       set number-of-agents 0
+      set hidden? true
+
     ]
   ]
 
   ; Create building agents from GIS data
   foreach (gis:feature-list-of buildings-dataset) [
-    b -> create-buildings 1 [
+    b ->
+      ; Store building latitude and longitude from GIS data
+      let xy gis:location-of gis:centroid-of b
+       ifelse length xy = 2 [  ; check if conversion was successful
+        create-buildings 1 [
+
       set capacity 3 ; Set maximum capacity to 3 people per building
       set occupants 0 ; Initialize occupants to 0
-
-      ; Store building latitude and longitude from GIS data
-      let building-lat gis:property-value b "LAT"
-      let building-lon gis:property-value b "LON"
-      set latitude building-lat
-      set longitude building-lon
+        set hidden? true
 
     ; Convert lat-lon to NetLogo coordinates and move the building there
-    let xy gis:project-lat-lon latitude longitude
-    ifelse xy != false [  ; check if conversion was successful
+
       let x-cor item 0 xy
       let y-cor item 1 xy
       setxy x-cor y-cor
-    ] [
+    ]
+    ]
+[
       print "Warning: Could not convert coordinates for building"
     ]
-  ]
   ]
   ; Create up to 100 people and assign them to buildings
   create-people 100 [
@@ -100,10 +102,7 @@ to setup-world
         set shape "person" ; NetLogo's built-in "person" shape
         set size 0.5 ; Size adjustment to make them visible
 
-        ; Move person to the exact position of the assigned building
-        let person-xy gis:project-lat-lon [latitude] of assigned-building [longitude] of assigned-building
-        move-to patch item 0 person-xy item 1 person-xy
-      ]
-    ]
-  ]
+      ]
+    ]
+  ]
 end
