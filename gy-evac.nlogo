@@ -68,20 +68,17 @@ to setup-world
        ifelse length xy = 2 [  ; check if conversion was successful
         create-buildings 1 [
 
-      set capacity 3 ; Set maximum capacity to 3 people per building
-      set occupants 0 ; Initialize occupants to 0
-        set hidden? true
-
-    ; Convert lat-lon to NetLogo coordinates and move the building there
-
-      let x-cor item 0 xy
-      let y-cor item 1 xy
-      setxy x-cor y-cor
-    ]
-    ]
-[
-      print "Warning: Could not convert coordinates for building"
-    ]
+          set capacity 3 ; Set maximum capacity to 3 people per building
+          set occupants 0 ; Initialize occupants to 0
+          set hidden? true
+          let x-cor item 0 xy
+          let y-cor item 1 xy
+          setxy x-cor y-cor
+          ]
+        ]
+        [
+          print "Warning: Could not convert coordinates for building"
+        ]
   ]
   ; Create up to 100 people and assign them to buildings
   create-people 100 [
@@ -96,13 +93,25 @@ to setup-world
           set occupants occupants + 1 ; Increment occupants in the building
         ]
         set assigned true
-
+        
         ; Visual appearance settings for each person
         set color blue
         set shape "person" ; NetLogo's built-in "person" shape
         set size 0.5 ; Size adjustment to make them visible
-
       ]
     ]
   ]
+
+  py:setup py:python (py:run
+    "from path_nav import *"
+    "navigator = RoadGraph()"
+    "evac_node = '081F9FA5-31D7-4E17-87E2-6197C03B7595'"
+    "navigator.setEvacNode(evac_node)"
+    "navigator.calculatePaths()"
+    "print('Calculated all routes!')"
+  )
+
+  py:run "print(navigator.getPathFromNode('42A5574A-8B9B-4E0D-9402-C1684ABA33FF'))"
+
+
 end
