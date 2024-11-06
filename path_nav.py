@@ -1,5 +1,6 @@
 import heapq
 import fiona
+import random
 from typing import Dict, List, Tuple
 
 class RoadGraph:
@@ -11,14 +12,15 @@ class RoadGraph:
         - Values are dictionaries of neighboring nodes and their edge weights
         """
         self.nodes = {}
-    
-        with fiona.open("./data/TG_RoadLink.shp") as shapefile:
+        with fiona.open("./data/SW_RoadLink.shp") as shapefile:
             for road in shapefile:
                 start = road.properties["startNode"]
                 end = road.properties["endNode"]
                 length = road.properties["length"]
                 self.__add_edge(start,end,length)
                 self.__add_edge(end,start,length)
+        self.road_data = {} #Key = (a,b) where road connects a,b #Value = {cars,max_speed}
+            
     
     def setEvacNode(self, node_id):
         self.evacNode = node_id
@@ -44,6 +46,7 @@ class RoadGraph:
         if to_node not in self.nodes:
             self.nodes[to_node] = {}
         self.nodes[from_node][to_node] = weight
+        self.road_data[(from_node,to_node)] = {"cars":0,"max_speed":30,"length":weight}
 
     def __dijkstra(self, start: str) -> Tuple[Dict[str, float], Dict[str, str]]:
         """
@@ -106,6 +109,58 @@ class RoadGraph:
         
         # DOES NOT REVERSE PATH: THIS IS BECAUSE "start" NODE IS ACTUALLY OUR END NODE
         return list(path)
+
+class Navigator:
+    
+    def __init__(self,evac_point):
+        self.road_network = RoadGraph()
+        self.road_network.setEvacNode(evac_point)
+        self.road_network.calculatePaths()
+        
+        self.car_states = {} #Key = car_id, Value: {road:(a,b), length_travelled, speed, path}     
+        
+    def carInit(self,on_node):
+        id = 1
+        while id in self.car_states:
+            id = random.randint(1,2**15)
+        path = self.road_network.getPathFromNode(on_node)
+        self.car_states[id] = {
+            "road":(on_node,self.path[0]),
+            "length_travelled":0,
+            "speed":0,
+            "path":path
+            }
+        self.road_network.road_data[(on_node,path[0])] += 1
+        return id
+
+    def popCarNextNode(self,car_id):
+        return self.car_states[car_id]["path"].pop()
+    
+    def __getCarSpeed(self,road):
+        numCars = self.road_network.road_data[road]["cars"]
+        max_speed = self.road_network.road_data[road]["max_speed"]
+        length = self.road_network.road_data[road]["length"]
+        
+        if numCars > length:
+            return max_speed / (numCars / length)
+        return max_speed
+    
+    def __getNextRoad(self,car_id):
+        path = self.car_states[car_id]["path"]
+        current_road = self.car_states[car_id]["road"]
+        i = path.index(current_road[0])
+        next_from_node = path[i+1]
+        next_to_node = path[i+2]
+        return (next_from_node,next_to_node)
+        
+        
+    def update_cars(self):
+        for car in self.car_states.keys():
+            road = self.car_states[car]["road"]
+            self.car_states[car]["speed"] = self.__getCarSpeed(self.car_states[car][road])
+            self.car_states[car]["length_travelled"] += self.car_states[car]["speed"]
+            #if self.car_states[car]["length_travelled"] > self.road_network.road_data[road]["length"]:
+                
 
 # Example usage
 def main():

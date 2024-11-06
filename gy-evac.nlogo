@@ -6,10 +6,19 @@ extensions[
 ; Road links/connections, mediums agents can travel along
 breed [roads road]
 roads-own[
-  len
-  node-1
-  node-2
-  number-of-agents
+  len ; Length of road
+  node-1 ; Node at one end
+  node-2 ; Node at other end
+  number-of-cars ; Number of cars on road segment
+]
+
+; Cars, used to move people
+breed [cars car]
+cars-own[
+  id ; Used to reference with python code
+  occupants ; Number of people in car
+  on-node ; Node car is on
+  to-node ; Node car is moving to
 ]
 
 ; Buildings
@@ -35,12 +44,12 @@ end
 to setup-world
   clear-all
   ; Load GIS data for roads and buildings
-  let roads-dataset gis:load-dataset ".\\Data\\TG_RoadLink.shp"
-  let buildings-dataset gis:load-dataset ".\\Data\\TG_Building.shp"
+  let roads-dataset gis:load-dataset ".\\Data\\SW_RoadLink.shp"
+  let buildings-dataset gis:load-dataset ".\\Data\\SW_Building.shp"
+  let nodes-dataset gis:load-dataset ".\\Data\\SW_RoadNode.shp"
 
   ; Set world envelope based on data
-  gis:set-world-envelope (gis:envelope-union-of (gis:envelope-of roads-dataset) (gis:envelope-of buildings-dataset))
-  gis:set-world-envelope [641544 653476 300000 319072]
+  gis:set-world-envelope [144672 150470 027852 032383]
 
   ; Draw roads and buildings
   gis:set-drawing-color white
@@ -49,17 +58,32 @@ to setup-world
   gis:set-drawing-color grey
   gis:draw buildings-dataset 1
 
+  ; Python setup
+    py:setup py:python (py:run
+    "from path_nav import *"
+    "evac_node = '627448CE-0C7F-4DA1-A3A5-8FD22F0FC07E'"
+    "navigator = Navigator(evac_node)"
+  )
+
   ; Create road agents from the GIS data
   foreach (gis:feature-list-of roads-dataset) [
-    r -> create-roads 1 [
-      set len (gis:property-value r "LENGTH")
-      set node-1 (gis:property-value r "STARTNODE")
-      set node-2 (gis:property-value r "ENDNODE")
-      set number-of-agents 0
-      set hidden? true
-
-    ]
+    r ->
+    let centre gis:location-of gis:centroid-of r
+    ;if length centre = 2 [
+      create-roads 1 [
+        set len (gis:property-value r "LENGTH")
+        set node-1 (gis:property-value r "STARTNODE")
+        set node-2 (gis:property-value r "ENDNODE")
+        ;print r
+        set number-of-cars 0
+;        set xcor item 0 centre
+;        set ycor item 1 centre
+        set hidden? true
+      ]
+    ;]
   ]
+
+  py:run "print(list(navigator.road_network.prev_nodes.items())[:5])"
 
   ; Create building agents from GIS data
   foreach (gis:feature-list-of buildings-dataset) [
@@ -78,7 +102,7 @@ to setup-world
           ]
         ]
         [
-          print "Warning: Could not convert coordinates for building"
+          ; print "Warning: Could not convert coordinates for building"
         ]
   ]
   ; Create up to 100 people and assign them to buildings
@@ -106,18 +130,35 @@ to setup-world
    ]
   ]
 
-  py:setup py:python (py:run
-    "from path_nav import *"
-    "navigator = RoadGraph()"
-    "evac_node = '081F9FA5-31D7-4E17-87E2-6197C03B7595'"
-    "navigator.setEvacNode(evac_node)"
-    "navigator.calculatePaths()"
-    "print('Calculated all routes!')"
-  )
+end
 
-  py:run "print(navigator.getPathFromNode('42A5574A-8B9B-4E0D-9402-C1684ABA33FF'))"
+to car-init
+  let start "F28C7083-59F5-41E4-9BD7-D53D66B48AF1"
+  py:set "start_node" start
+  py:run "id = navigator.carInit(start_node)"
+  let car-id py:runresult "id"
+  create-cars 1 [
+    set id car-id
+    set on-node start
+    set to-node py:runresult "navigator.popCarNextNode(id)"
+    set occupants 0
+    set shape "car"
+    set color red
+  ]
+  let a-car one-of cars
+  print [on-node] of a-car
+  print [to-node] of a-car
+  ask a-car [set-car-position]
+end
 
-
+to set-car-position
+;  let on-road one-of roads with [
+;    (node-1 = [on-node] of myself and node-2 = [to-node] of myself) or
+;    (node-1 = [to-node] of myself and node-2 = [on-node] of myself)]
+;  let on-road one-of roads with [node-1 = [to-node] of myself]
+;
+;  set xcor [xcor] of on-road
+;  set ycor [ycor] of on-road
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -171,6 +212,23 @@ BUTTON
 147
 Clear
 clear
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+56
+173
+125
+206
+NIL
+car-init
 NIL
 1
 T
