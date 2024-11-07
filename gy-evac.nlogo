@@ -59,7 +59,8 @@ to setup-world
   gis:draw buildings-dataset 1
 
   ; Python setup
-    py:setup py:python (py:run
+  py:setup py:python
+  (py:run
     "from path_nav import *"
     "evac_node = '627448CE-0C7F-4DA1-A3A5-8FD22F0FC07E'"
     "navigator = Navigator(evac_node)"
