@@ -31,8 +31,7 @@ class RoadGraph:
                     max_speed = self.__kmhToTickSpeed(112) # Dual Carriageway => 70mph, 112 km/h
                 else:
                     max_speed = self.__kmhToTickSpeed(32) # Default 20mph speed limit as 32km/h
-                self.road_data[(start,end)]["max_speed"] = max_speed
-                
+                self.road_data[(start,end)]["max_speed"] = max_speed        
             
     
     def setEvacNode(self, node_id):
@@ -127,7 +126,6 @@ class RoadGraph:
         return list(path)
 
 class Navigator:
-    
     def __init__(self,evac_point):
         self.road_network = RoadGraph()
         self.road_network.setEvacNode(evac_point)
@@ -135,6 +133,7 @@ class Navigator:
         
         self.car_states = {} #Key = car_id, Value: {road:(a,b), length_travelled, speed, path}   
         self.cars_to_delete = set()  
+        self.finished_cars = set()
     
     def __getCarSpeed(self,road):
         numCars = self.road_network.road_data[road]["cars"]
@@ -218,10 +217,14 @@ class Navigator:
                 d_until_road_end = self.road_network.road_data[road]["length"] - self.car_states[car_id]["length_travelled"]
             print("\n")
             
+        self.finished_cars = self.cars_to_delete[:]
         # Delete all cars which have finished
         for car_id in self.cars_to_delete:
             del self.car_states[car_id]
-        self.cars_to_delete = set()       
+        self.cars_to_delete = set()
+        
+    def getCarsFinishedInUpdate(self):
+         return list(self.finished_cars)
 
 # Example usage
 def main():
@@ -230,7 +233,6 @@ def main():
     nav.carInit("F4FEF811-77A9-48F5-8B2D-7B64C2E0D317")
     while len(nav.car_states) > 0:
         nav.updateCars()
-    
 
 if __name__ == "__main__":
     main()

@@ -187,6 +187,7 @@ to evacuate-step
   ; Update cars through python
   py:run "navigator.updateCars()"
 
+
 ;  ; Only proceed if there are vehicles to process
 ;  if is-list? current-vehicles and not empty? current-vehicles [
 ;    foreach current-vehicles [
