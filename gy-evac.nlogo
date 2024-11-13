@@ -3,15 +3,6 @@ extensions[
   py
 ]
 
-; Road links/connections, mediums agents can travel along
-breed [roads road]
-roads-own[
-  len ; Length of road
-  node-1 ; Node at one end
-  node-2 ; Node at other end
-  number-of-cars ; Number of cars on road segment
-]
-
 ; Cars, used to move people
 breed [cars car]
 cars-own[
@@ -28,17 +19,49 @@ buildings-own[
   occupants ; Track current number of occupants
   latitude ; Store latitude of the building location
   longitude ; Store longitude of the building location
+  nearest-road-node ; Stores nearest road-node for fast lookup
 ]
 
 ; People
 breed [people person]
 people-own[
   assigned-building ; The building this person is assigned to
+  evacuate-now?         ; Track if the person has chosen to evacuate in this period
+  evacuating? ; Tracks if person is already evacuating
+]
+
+breed [road-nodes road-node]
+road-nodes-own[
+  id ; Node id
+]
+
+globals [
+  vehicles-info ; Store information about each car
+  total-evacuees ; Track total number of evacuating people
+  evacuees-in-transit ; Track number of people currently evacuating
+  evacuees-completed ; Track number of people who have completed evacuation
+  python-output ; Store Python script output
+  vehicle-capacity;
 ]
 
 to clear
   clear-drawing
   clear-all
+end
+
+to setup
+  clear ; This does not seem to be working and I am not sure why (makes tick = 0) tried set tick 0 but still did not work.
+  reset-evacuation-stats
+  setup-world
+  reset-ticks
+end
+
+
+to reset-evacuation-stats
+  set total-evacuees 0
+  set evacuees-in-transit 0
+  set evacuees-completed 0
+  set python-output ""
 end
 
 to setup-world
@@ -66,35 +89,27 @@ to setup-world
     "navigator = Navigator(evac_node)"
   )
 
-  ; Create road agents from the GIS data
-  foreach (gis:feature-list-of roads-dataset) [
-    r ->
-    let centre gis:location-of gis:centroid-of r
-    ;if length centre = 2 [
-      create-roads 1 [
-        set len (gis:property-value r "LENGTH")
-        set node-1 (gis:property-value r "STARTNODE")
-        set node-2 (gis:property-value r "ENDNODE")
-        ;print r
-        set number-of-cars 0
-;        set xcor item 0 centre
-;        set ycor item 1 centre
+  ; Create node agents for simpler lookup of nearest nodes to buidlings
+  foreach (gis:feature-list-of nodes-dataset)[
+  n ->
+    let xy gis:location-of gis:centroid-of n
+    if length xy = 2 [
+      create-road-nodes 1 [
+        set id gis:property-value n "IDENTIFIER"
+        set xcor item 0 xy
+        set ycor item 1 xy
         set hidden? true
       ]
-    ;]
+    ]
   ]
-
-  py:run "print(list(navigator.road_network.prev_nodes.items())[:5])"
 
   ; Create building agents from GIS data
   foreach (gis:feature-list-of buildings-dataset) [
     b ->
-      ; Store building latitude and longitude from GIS data
       let xy gis:location-of gis:centroid-of b
        ifelse length xy = 2 [  ; check if conversion was successful
         create-buildings 1 [
-
-          set capacity 3 ; Set maximum capacity to 3 people per building
+          set capacity 20 ; Set maximum capacity to 3 people per building
           set occupants 0 ; Initialize occupants to 0
           set hidden? true
           let x-cor item 0 xy
@@ -106,70 +121,183 @@ to setup-world
           ; print "Warning: Could not convert coordinates for building"
         ]
   ]
-  ; Create up to 100 people and assign them to buildings
-  create-people 100 [
-  let assigned false
-  while [not assigned] [
-    ; Choose a random building
-    let b one-of buildings
-    if [occupants] of b < [capacity] of b [
-      ; Assign person to the building
-      set assigned-building b
-      ask b [
-        set occupants occupants + 1 ; Increment occupants in the building
+
+  ; Find & set nearest road node
+  foreach sort buildings [
+    b ->
+    let nearest-road-node-lookup nobody
+    let nearest-road-node-dist max-pxcor + max-pycor
+    ask road-nodes [
+      let dist distance b
+      if dist < nearest-road-node-dist[
+        set nearest-road-node-lookup self
+        set nearest-road-node-dist dist
       ]
-      set assigned true
-
-      ; Visual appearance settings for each person
-      set color blue
-      set shape "person" ; NetLogo's built-in "person" shape
-      set size 0.5 ; Size adjustment to make them visible
-
-      ; Move the person to the building's coordinates
-      setxy [xcor] of assigned-building [ycor] of assigned-building
     ]
-   ]
+    ask b [set nearest-road-node nearest-road-node-lookup]
   ]
 
-end
+  ; Create a number of people based on the slider value
+  create-people initial-people [
+    let assigned false
+    while [not assigned] [
+      ; Choose a random building
+      let b one-of buildings
+      if [occupants] of b < [capacity] of b [
+        ; Assign person to the building
+        set assigned-building b
+        ask b [
+          set occupants occupants + 1 ; Increment occupants in the building
+        ]
+        set assigned true
+      ]
+    ]
 
-to car-init
-  let start "F28C7083-59F5-41E4-9BD7-D53D66B48AF1"
-  py:set "start_node" start
-  py:run "id = navigator.carInit(start_node)"
-  let car-id py:runresult "id"
-  create-cars 1 [
-    set id car-id
-    set on-node start
-    set to-node py:runresult "navigator.popCarNextNode(id)"
-    set occupants 0
-    set shape "car"
-    set color red
+    ; Initially won't evacuate
+    set evacuate-now? false
+    set evacuating? false
+
+    ; Visual appearance settings for each person
+    set color blue
+    set shape "person"
+    set size 0.5
+
+    ; Move the person to the building's coordinates
+    setxy [xcor] of assigned-building [ycor] of assigned-building
   ]
-  let a-car one-of cars
-  print [on-node] of a-car
-  print [to-node] of a-car
-  ask a-car [set-car-position]
 end
 
-to set-car-position
-;  let on-road one-of roads with [
-;    (node-1 = [on-node] of myself and node-2 = [to-node] of myself) or
-;    (node-1 = [to-node] of myself and node-2 = [on-node] of myself)]
-;  let on-road one-of roads with [node-1 = [to-node] of myself]
+to start-evacuation ; Thought seperating start evac and continue evac may make life easier :)
+  ; Initialise vehicles-info as an empty list
+  ;set vehicles-info []
+
+  ; Reset evacuation statistics
+  set evacuees-in-transit 0
+
+  ; Go through each person and set evacuation status based on probability
+  ask people with [evacuate-now? = false][
+    set evacuate-now? (random-float 1 < evacuation-probability)
+    if evacuate-now? = true [
+      set hidden? true
+    ]
+  ]
+
+  ; Init evacuation for people who want to evacuate in same period
+  foreach sort buildings[
+    b ->
+    ; Get evacuating people as those who have chosen to evacuate but haven't already in building
+    let evacuating-people people with [evacuate-now? = true and evacuating? = false and assigned-building = b]
+    let n-evacuees count evacuating-people
+    ; Set evacuees to have evacuating? flag (meaning the system sees them as already evacuating)
+    ask evacuating-people [
+      set evacuating? true
+    ]
+    py:set "vehicle_capacity" 5
+    if n-evacuees > 0 [
+      ; Init all vehicles
+      py:set "start_node" [id] of [nearest-road-node] of b
+      py:set "num_evacuees" n-evacuees
+      py:run "navigator.initVehicles(vehicle_capacity, num_evacuees, start_node)"
+      ;py:run "print('Evacuating',num_evacuees,'from',start_node)"
+    ]
+  ]
+
+;  ; Update Python output with initial evacuation statistics
+;  set python-output (word python-output "\nInitial Evacuation Statistics:"
+;    "\nEvacuation Probability: " evacuation-probability
+;    "\nTotal Evacuees: " total-evacuees
+;    "\nEvacuees in Transit: " evacuees-in-transit)
+end
+
+; Updates each vehicle's movement --> no graphics
+;to evacuate-step
+;  ; Make a copy of vehicles-info to avoid modifying it during iteration
+;  let current-vehicles vehicles-info
 ;
-;  set xcor [xcor] of on-road
-;  set ycor [ycor] of on-road
+;  ; Update cars through python
+;  py:run "navigator.updateCars()"
+;  let finished-vehicles py:run "navigator.getCarsFinishedInUpdate()"
+
+;  ; Only proceed if there are vehicles to process
+;  if is-list? current-vehicles and not empty? current-vehicles [
+;    foreach current-vehicles [
+;      vehicle ->
+;      if is-list? vehicle and length vehicle >= 3 [
+;        let vehicle-id item 0 vehicle
+;        let current-node item 1 vehicle
+;        let evacuee item 2 vehicle
+;
+;        ; Request the next node from Python for this vehicle
+;        py:set "car_id" vehicle-id
+;        let next-node py:runresult "navigator.popCarNextNode(car_id)"
+;
+;        ; Move the evacuee associated with this vehicle if there is a next node
+;        ifelse next-node != nobody [
+;          ask evacuee [
+;            setxy [xcor] of next-node [ycor] of next-node
+;          ]
+;          ; Update vehicle information with the new node
+;          let updated-vehicle (list vehicle-id next-node evacuee)
+;          set vehicles-info replace-item (position vehicle vehicles-info) vehicles-info updated-vehicle
+;
+;          ; Get updated Python vehicle state
+;          let python-car-info py:runresult "navigator.car_states[car_id]"
+;          set python-output (word python-output "\nVehicle Update:"
+;            "\nVehicle ID: " vehicle-id
+;            "\nNew Node: " next-node
+;            "\nVehicle State: " python-car-info)
+;        ]
+;        [
+;          ; If no next node, evacuation is complete for this vehicle
+;          set evacuees-completed evacuees-completed + 1
+;          set evacuees-in-transit evacuees-in-transit - 1
+;          ; Remove the completed vehicle from vehicles-info
+;          set vehicles-info remove vehicle vehicles-info
+;        ]
+;      ]
+;    ]
+;  ]
+;
+;  ; Update Python output with current evacuation statistics
+;  set python-output (word python-output "\nCurrent Evacuation Statistics:"
+;    "\nEvacuation Probability: " evacuation-probability
+;    "\nTotal Evacuees: " total-evacuees
+;    "\nEvacuees in Transit: " evacuees-in-transit
+;    "\nEvacuees Completed: " evacuees-completed)
+;end
+
+to go
+  ;start-evacuation
+  if (ticks mod 100 = 0) [
+    start-evacuation
+  ]
+  py:run "navigator.updateCars()"
+  tick
 end
+
+; Output evacuation statistics
+to-report get-evacuation-stats
+  report (word "Evacuation Statistics:\n"
+    "Evacuation Probability: " evacuation-probability "\n"
+    "Total Evacuees: " total-evacuees "\n"
+    "Evacuees in Transit: " evacuees-in-transit "\n"
+    "Evacuees Completed: " evacuees-completed "\n"
+    "Python Output:\n" python-output)
+end
+
+to-report get-no-active-cars
+  report py:runresult "navigator.getNoActiveCars()"
+end
+
 @#$#@#$#@
 GRAPHICS-WINDOW
 210
 10
-647
-448
+781
+582
 -1
 -1
-13.0
+17.061
 1
 10
 1
@@ -183,8 +311,8 @@ GRAPHICS-WINDOW
 16
 -16
 16
-0
-0
+1
+1
 1
 ticks
 30.0
@@ -223,13 +351,56 @@ NIL
 NIL
 1
 
-BUTTON
-56
-173
-125
-206
+INPUTBOX
+803
+29
+958
+89
+initial-people
+1.0
+1
+0
+Number
+
+SLIDER
+799
+134
+971
+167
+evacuation-probability
+evacuation-probability
+0
+1
+0.77
+0.01
+1
 NIL
-car-init
+HORIZONTAL
+
+BUTTON
+47
+165
+121
+198
+Go
+go
+T
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+0
+
+BUTTON
+54
+254
+140
+287
+NIL
+reset-ticks
 NIL
 1
 T

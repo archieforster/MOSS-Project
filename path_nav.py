@@ -3,7 +3,16 @@ import fiona
 import random
 from typing import Dict, List, Tuple
 
-TICK_TIME_MINS = 5
+TICK_TIME_MINS = 0.5
+OVER_BREAK_P = 0.1
+OVER_BREAK_SPEED_REDUCTION = 0.05 #10%
+ACCELERATION = 10 * TICK_TIME_MINS # Increase in speed in km/h per tick
+
+def kmhToTickSpeed(kmh_speed):
+    return (kmh_speed / 60) * TICK_TIME_MINS # Assume tick = 5 mins
+
+def tickSpeedToKmh(tick_speed):
+    return (tick_speed / TICK_TIME_MINS) * 60 
 
 class RoadGraph:
     def __init__(self):
@@ -20,19 +29,19 @@ class RoadGraph:
                 # Add graph edges
                 start = road.properties["startNode"]
                 end = road.properties["endNode"]
-                length = road.properties["length"]
+                length = road.properties["length"] / 1000 #Road length in km rather than m
                 self.__add_edge(start,end,length)
                 self.__add_edge(end,start,length)
                 # Add speed limit data
                 roadType = road.properties["formOfWay"]
                 if roadType == "Single Carriageway":
-                    max_speed = self.__kmhToTickSpeed(96) # Single Carriageway => 60mph, 96 km/h
+                    max_speed = kmhToTickSpeed(96) # Single Carriageway => 60mph, 96 km/h
                 elif roadType == "Dual Carriageway":
-                    max_speed = self.__kmhToTickSpeed(112) # Dual Carriageway => 70mph, 112 km/h
+                    max_speed = kmhToTickSpeed(112) # Dual Carriageway => 70mph, 112 km/h
                 else:
-                    max_speed = self.__kmhToTickSpeed(32) # Default 20mph speed limit as 32km/h
-                self.road_data[(start,end)]["max_speed"] = max_speed
-                
+                    max_speed = kmhToTickSpeed(32) # Default 20mph speed limit as 32km/h
+                self.road_data[(start,end)]["max_speed"] = max_speed #km per tick
+                self.road_data[(end,start)]["max_speed"] = max_speed #km per tick   
             
     
     def setEvacNode(self, node_id):
@@ -44,9 +53,6 @@ class RoadGraph:
     
     def getPathFromNode(self, node_id):
         return self.__get_path(self.evacNode, node_id, self.prev_nodes)
-    
-    def __kmhToTickSpeed(self,kmh_speed):
-        return kmh_speed / (60 / TICK_TIME_MINS) # Assume tick = 5 mins
 
     def __add_edge(self, from_node: str, to_node: str, weight: float):
         """
@@ -62,7 +68,7 @@ class RoadGraph:
         if to_node not in self.nodes:
             self.nodes[to_node] = {}
         self.nodes[from_node][to_node] = weight
-        self.road_data[(from_node,to_node)] = {"cars":0,"max_speed":30,"length":weight}
+        self.road_data[(from_node,to_node)] = {"cars":0,"max_speed":0,"length":weight}
 
     def __dijkstra(self, start: str) -> Tuple[Dict[str, float], Dict[str, str]]:
         """
@@ -127,23 +133,25 @@ class RoadGraph:
         return list(path)
 
 class Navigator:
-    
     def __init__(self,evac_point):
         self.road_network = RoadGraph()
         self.road_network.setEvacNode(evac_point)
         self.road_network.calculatePaths()
         
-        self.car_states = {} #Key = car_id, Value: {road:(a,b), length_travelled, speed, path}   
-        self.cars_to_delete = set()  
+        self.car_states = {} #Key = car_id, Value: {road:(a,b), length_travelled, speed, path, people}   
+        self.cars_to_delete = []  
     
-    def __getCarSpeed(self,road):
+    def __getCarSpeed(self,current_speed, road):
         numCars = self.road_network.road_data[road]["cars"]
-        max_speed = self.road_network.road_data[road]["max_speed"]
-        length = self.road_network.road_data[road]["length"]
+        max_speed = self.road_network.road_data[road]["max_speed"] #km per tick
+        length = self.road_network.road_data[road]["length"] # Distance in km
         
-        if numCars > length:
-            return max_speed / (numCars / length)
-        return max_speed
+        inter_car_distance = length / numCars
+        
+        if inter_car_distance < max_speed and numCars > 1:
+            return inter_car_distance if (random.random() < OVER_BREAK_P) else (OVER_BREAK_SPEED_REDUCTION * inter_car_distance)
+        speed_kmh = tickSpeedToKmh(current_speed) #in kmh
+        return min(kmhToTickSpeed(speed_kmh + ACCELERATION), max_speed)
     
     def __getNextRoad(self,car_id):
         path = self.car_states[car_id]["path"]
@@ -156,9 +164,9 @@ class Navigator:
     def __terminateJourney(self,car_id):
         road = self.car_states[car_id]["road"]
         self.road_network.road_data[road]["cars"] -= 1
-        self.cars_to_delete.add(car_id)
+        self.cars_to_delete.append(car_id)
         
-    def carInit(self,on_node):
+    def __carInit(self,on_node):
         id = 1
         while id in self.car_states:
             id = random.randint(1,2**15)
@@ -166,11 +174,34 @@ class Navigator:
         self.car_states[id] = {
             "road":(on_node,path[1]),
             "length_travelled":0,
-            "speed":0,
-            "path":path
+            "speed": 0,
+            "path":path,
+            "people":0
             }
         self.road_network.road_data[(on_node,path[1])]["cars"] += 1
         return id
+    
+    def initVehicles(self, vehicle_capacity, num_of_evacuees, start_node):
+        # Return empty list if no evacuees
+        if num_of_evacuees < 0 : return []
+        # Calc number of vehicles needed
+        car_ids = []
+        if num_of_evacuees % vehicle_capacity == 0:
+            num_vehicles_init = num_of_evacuees // vehicle_capacity
+        else:
+            num_vehicles_init = 1 + num_of_evacuees // vehicle_capacity
+        # Init n-1 vehicles as full
+        for i in range(num_vehicles_init - 1):
+            id = self.__carInit(start_node)
+            self.car_states[id]["people"] = vehicle_capacity
+            car_ids.append(id)
+        # Init final vehicle with remainder    
+        id = self.__carInit(start_node)
+        self.car_states[id]["people"] = vehicle_capacity % vehicle_capacity
+        car_ids.append(id)
+        # Return all ids
+        return car_ids
+        
         
     def updateCars(self):
         for car_id in self.car_states.keys():
@@ -179,8 +210,9 @@ class Navigator:
             print("===CAR:"+str(car_id)+"===")
             road = self.car_states[car_id]["road"]
             print("ON-ROAD:",road)
-            self.car_states[car_id]["speed"] = self.__getCarSpeed(road)
-            print("SPEED:",self.car_states[car_id]["speed"])
+            self.car_states[car_id]["speed"] = self.__getCarSpeed(self.car_states[car_id]["speed"], road)
+            print("ROAD SPEED:", self.road_network.road_data[road]["max_speed"])
+            print("CAR SPEED:",self.car_states[car_id]["speed"])
             print("ROAD-LEN:",self.road_network.road_data[road]["length"])
             # Update car travel distance
             # Distance travelled in tick = speed
@@ -210,27 +242,36 @@ class Navigator:
                 t_in_new_road = 1 - t_in_old_road
                 print("T-NEW_ROAD:",t_in_new_road)
                 print("NEW-ROAD:",road)
-                self.car_states[car_id]["speed"] = self.__getCarSpeed(road)
+                print("NEW-ROAD-SPEED:",self.road_network.road_data[road]["max_speed"])
+                self.car_states[car_id]["speed"] = self.__getCarSpeed(self.car_states[car_id]["speed"],road)
                 print("NEW-SPEED",self.car_states[car_id]["speed"])
                 self.car_states[car_id]["length_travelled"] = t_in_new_road * self.car_states[car_id]["speed"]
                 print("NEW-ROAD-LEN:",self.road_network.road_data[road]["length"])
                 print("NEW-DISTANCE-TRAVELLED:",self.car_states[car_id]["length_travelled"])
                 d_until_road_end = self.road_network.road_data[road]["length"] - self.car_states[car_id]["length_travelled"]
-            print("\n")
+                print("\n")
             
         # Delete all cars which have finished
+        print("N.o. cars:",len(self.car_states))
         for car_id in self.cars_to_delete:
             del self.car_states[car_id]
-        self.cars_to_delete = set()       
+        self.cars_to_delete = []
+    
+    def getNoActiveCars(self):
+        return len(self.car_states)
 
 # Example usage
 def main():
+    
+    # with fiona.open("./data/SW_RoadNode.shp") as shapefile:
+    #     for n in shapefile:
+    #         print(n)
+    
     evac_point = "627448CE-0C7F-4DA1-A3A5-8FD22F0FC07E"
     nav = Navigator(evac_point)
-    nav.carInit("F4FEF811-77A9-48F5-8B2D-7B64C2E0D317")
+    nav.initVehicles(5,20,"F9880B09-CE9B-4C9C-AE5E-29FA6214424E")
     while len(nav.car_states) > 0:
         nav.updateCars()
-    
 
 if __name__ == "__main__":
     main()
