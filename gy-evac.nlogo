@@ -284,6 +284,11 @@ to-report get-evacuation-stats
     "Evacuees Completed: " evacuees-completed "\n"
     "Python Output:\n" python-output)
 end
+
+to-report get-no-active-cars
+  report py:runresult "navigator.getNoActiveCars()"
+end
+
 @#$#@#$#@
 GRAPHICS-WINDOW
 210
