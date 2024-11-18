@@ -8,6 +8,11 @@ _over_break_p = 0.1
 OVER_BREAK_SPEED_REDUCTION = 0.05 # 5%
 ACCELERATION = 10 * _tick_time_mins # Increase in speed in km/h per tick
 
+#TODO:
+# - Implement walking as mode of transport
+# - Report n.o. walking evacuating, n.o. car evacuating
+# - Report total evacuated
+
 def set_tick_time_mins(t):
     _tick_time_mins = t
     
@@ -275,8 +280,7 @@ class Navigator:
     
     def getNoEvacuatingPeople(self):
         return self.total_evacuees
-
-
+    
     def getAvgNoPeoplePerCar(self):
         if len(self.car_states) > 0:
             return self.total_evacuees / len(self.car_states)
