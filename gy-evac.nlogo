@@ -53,6 +53,7 @@ to setup
   clear ; This does not seem to be working and I am not sure why (makes tick = 0) tried set tick 0 but still did not work.
   reset-evacuation-stats
   setup-world
+  clear-ticks
   reset-ticks
 end
 
@@ -72,6 +73,7 @@ to setup-world
   let nodes-dataset gis:load-dataset ".\\Data\\SW_RoadNode.shp"
 
   ; Set world envelope based on data
+  ;gis:set-world-envelope [146728 146895 030800 030951]
   gis:set-world-envelope [144672 150470 027852 032383]
 
   ; Draw roads and buildings
@@ -83,10 +85,14 @@ to setup-world
 
   ; Python setup
   py:setup py:python
+  py:set "tick_t" tick-time-in-mins
+  py:set "over_break_p" over-break-p
   (py:run
     "from path_nav import *"
-    "evac_node = '627448CE-0C7F-4DA1-A3A5-8FD22F0FC07E'"
+    "evac_node = '867E0091-5D44-4879-9822-2F810BAED829'"
     "navigator = Navigator(evac_node)"
+    "set_tick_time_mins(tick_t)"
+    "set_over_break_p(over_break_p)"
   )
 
   ; Create node agents for simpler lookup of nearest nodes to buidlings
@@ -98,8 +104,16 @@ to setup-world
         set id gis:property-value n "IDENTIFIER"
         set xcor item 0 xy
         set ycor item 1 xy
-        set hidden? true
+        ifelse id = "867E0091-5D44-4879-9822-2F810BAED829"[
+          set hidden? false
+          set color red
+          set shape "star"
+        ][
+          set hidden? true
+        ]
+
       ]
+      print gis:property-value n "IDENTIFIER"
     ]
   ]
 
@@ -195,9 +209,10 @@ to start-evacuation ; Thought seperating start evac and continue evac may make l
     py:set "vehicle_capacity" 5
     if n-evacuees > 0 [
       ; Init all vehicles
+      ; IF start node is the evacuation point, then initVehicles will not instantiate new vehicle and evacuees
       py:set "start_node" [id] of [nearest-road-node] of b
       py:set "num_evacuees" n-evacuees
-      py:run "navigator.initVehicles(vehicle_capacity, num_evacuees, start_node)"
+      py:run "navigator.initVehicles(num_evacuees, start_node)"
       ;py:run "print('Evacuating',num_evacuees,'from',start_node)"
     ]
   ]
@@ -268,10 +283,17 @@ end
 
 to go
   ;start-evacuation
-  if (ticks mod 100 = 0) [
+  if (ticks mod floor (warning-interval-time-mins / tick-time-in-mins) = 0) [
     start-evacuation
   ]
-  py:run "navigator.updateCars()"
+  py:run "navigator.updateVehicles()"
+
+  ; Add termination conditions
+  if get-no-evacuating = 0 and count people with [evacuate-now? = false] = 0 [
+    print "Evacuation complete! Simulation stopping..."
+    stop
+  ]
+
   tick
 end
 
@@ -283,6 +305,30 @@ to-report get-evacuation-stats
     "Evacuees in Transit: " evacuees-in-transit "\n"
     "Evacuees Completed: " evacuees-completed "\n"
     "Python Output:\n" python-output)
+end
+
+to-report get-no-active-cars
+  report py:runresult "navigator.getNoActiveCars()"
+end
+
+to-report get-no-walking
+  report py:runresult "navigator.getNoWalking()"
+end
+
+to-report get-no-evacuating
+  report py:runresult "navigator.getNoEvacuating()"
+end
+
+to-report get-no-evacuated
+  report py:runresult "navigator.getNoEvacuated()"
+end
+
+to-report get-no-in-cars
+  report py:runresult "navigator.getNoInCars()"
+end
+
+to-report get-avg-no-people-per-car
+  report py:runresult "navigator.getAvgNoPeoplePerCar()"
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -306,8 +352,8 @@ GRAPHICS-WINDOW
 16
 -16
 16
-1
-1
+0
+0
 1
 ticks
 30.0
@@ -352,7 +398,7 @@ INPUTBOX
 958
 89
 initial-people
-1.0
+10.0
 1
 0
 Number
@@ -366,7 +412,7 @@ evacuation-probability
 evacuation-probability
 0
 1
-0.77
+0.17
 0.01
 1
 NIL
@@ -405,6 +451,106 @@ NIL
 NIL
 NIL
 1
+
+SLIDER
+802
+179
+974
+212
+over-break-p
+over-break-p
+0
+1
+0.06
+.01
+1
+NIL
+HORIZONTAL
+
+INPUTBOX
+1059
+139
+1159
+199
+tick-time-in-mins
+0.25
+1
+0
+Number
+
+MONITOR
+1163
+36
+1298
+81
+No Evacuating People
+get-no-evacuating
+0
+1
+11
+
+MONITOR
+1306
+38
+1409
+83
+N.o. Active Cars
+get-no-active-cars
+0
+1
+11
+
+INPUTBOX
+963
+29
+1118
+89
+max-walk-distance-km
+0.0
+1
+0
+Number
+
+INPUTBOX
+1185
+141
+1327
+201
+warning-interval-time-mins
+30.0
+1
+0
+Number
+
+PLOT
+800
+252
+1107
+496
+N.o. People Evacuating
+t
+N.o. People Evacuating
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"no-in-cars-pen" 1.0 0 -13345367 true "" "plot get-no-in-cars"
+"no-walking-pen" 1.0 0 -10899396 true "" "plot get-no-walking"
+
+MONITOR
+1172
+88
+1245
+133
+Evacuated
+get-no-evacuated
+0
+1
+11
 
 @#$#@#$#@
 ## WHAT IS IT?
