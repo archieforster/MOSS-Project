@@ -53,6 +53,7 @@ to setup
   clear ; This does not seem to be working and I am not sure why (makes tick = 0) tried set tick 0 but still did not work.
   reset-evacuation-stats
   setup-world
+  clear-ticks
   reset-ticks
 end
 
@@ -282,10 +283,17 @@ end
 
 to go
   ;start-evacuation
-  if (ticks mod 100 = 0) [
+  if (ticks mod floor (warning-interval-time-mins / tick-time-in-mins) = 0) [
     start-evacuation
   ]
   py:run "navigator.updateCars()"
+
+  ; Add termination conditions
+  if get-no-active-cars = 0 and count people with [evacuate-now? = false] = 0 [
+    print "Evacuation complete! Simulation stopping..."
+    stop
+  ]
+
   tick
 end
 
@@ -466,10 +474,10 @@ NIL
 HORIZONTAL
 
 INPUTBOX
-1028
-141
-1183
-201
+1059
+139
+1159
+199
 tick-time-in-mins
 0.25
 1
@@ -523,6 +531,17 @@ INPUTBOX
 89
 max-walk-distance-km
 0.0
+1
+0
+Number
+
+INPUTBOX
+1185
+141
+1327
+201
+warning-interval-time-mins
+30.0
 1
 0
 Number
