@@ -212,7 +212,7 @@ to start-evacuation ; Thought seperating start evac and continue evac may make l
       ; IF start node is the evacuation point, then initVehicles will not instantiate new vehicle and evacuees
       py:set "start_node" [id] of [nearest-road-node] of b
       py:set "num_evacuees" n-evacuees
-      py:run "navigator.initVehicles(vehicle_capacity, num_evacuees, start_node)"
+      py:run "navigator.initVehicles(num_evacuees, start_node)"
       ;py:run "print('Evacuating',num_evacuees,'from',start_node)"
     ]
   ]
@@ -286,10 +286,10 @@ to go
   if (ticks mod floor (warning-interval-time-mins / tick-time-in-mins) = 0) [
     start-evacuation
   ]
-  py:run "navigator.updateCars()"
+  py:run "navigator.updateVehicles()"
 
   ; Add termination conditions
-  if get-no-active-cars = 0 and count people with [evacuate-now? = false] = 0 [
+  if get-no-evacuating = 0 and count people with [evacuate-now? = false] = 0 [
     print "Evacuation complete! Simulation stopping..."
     stop
   ]
@@ -311,8 +311,20 @@ to-report get-no-active-cars
   report py:runresult "navigator.getNoActiveCars()"
 end
 
-to-report get-no-evacuating-people
-  report py:runresult "navigator.getNoEvacuatingPeople()"
+to-report get-no-walking
+  report py:runresult "navigator.getNoWalking()"
+end
+
+to-report get-no-evacuating
+  report py:runresult "navigator.getNoEvacuating()"
+end
+
+to-report get-no-evacuated
+  report py:runresult "navigator.getNoEvacuated()"
+end
+
+to-report get-no-in-cars
+  report py:runresult "navigator.getNoInCars()"
 end
 
 to-report get-avg-no-people-per-car
@@ -340,8 +352,8 @@ GRAPHICS-WINDOW
 16
 -16
 16
-1
-1
+0
+0
 1
 ticks
 30.0
@@ -386,7 +398,7 @@ INPUTBOX
 958
 89
 initial-people
-1000.0
+10.0
 1
 0
 Number
@@ -440,24 +452,6 @@ NIL
 NIL
 1
 
-PLOT
-821
-244
-1117
-476
-N.o. Active Cars
-tick
-No. Active Cars
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"active-cars-pen" 1.0 0 -13345367 true "" "plot get-no-active-cars"
-
 SLIDER
 802
 179
@@ -484,31 +478,13 @@ tick-time-in-mins
 0
 Number
 
-PLOT
-1127
-245
-1408
-475
-Avg. People Per Car
-tick
-Avg. People Per Car
-0.0
-10.0
-1.0
-5.0
-true
-false
-"" ""
-PENS
-"evacuating-people-pen" 1.0 0 -10263788 true "" "plot get-avg-no-people-per-car"
-
 MONITOR
 1163
 36
 1298
 81
 No Evacuating People
-get-no-evacuating-people
+get-no-evacuating
 0
 1
 11
@@ -545,6 +521,36 @@ warning-interval-time-mins
 1
 0
 Number
+
+PLOT
+800
+252
+1107
+496
+N.o. People Evacuating
+t
+N.o. People Evacuating
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"no-in-cars-pen" 1.0 0 -13345367 true "" "plot get-no-in-cars"
+"no-walking-pen" 1.0 0 -10899396 true "" "plot get-no-walking"
+
+MONITOR
+1172
+88
+1245
+133
+Evacuated
+get-no-evacuated
+0
+1
+11
 
 @#$#@#$#@
 ## WHAT IS IT?
