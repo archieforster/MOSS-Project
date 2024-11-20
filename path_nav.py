@@ -155,6 +155,10 @@ class Navigator:
         self.total_evacuated =0 
         self.total_cars = 0
         self.total_walking = 0
+        self.max_walking_distance = 0
+    
+    def setMaxWalkingDistance(self,d):
+        self.max_walking_distance = d
     
     def __getCarSpeed(self,current_speed, road):
         numCars = self.road_network.road_data[road]["cars"]
@@ -189,14 +193,12 @@ class Navigator:
         self.vehicles_to_delete.append(vehicle_id)
         
     def __getVehicleTypeFromPath(self,path):
-        MAX_WALKING_DISTANCE_KM = 4
         i = 0
         d = 0
         while i < len(path) - 1:
             road = (path[i],path[i+1])
             d += self.road_network.road_data[road]["length"]
-            if d > MAX_WALKING_DISTANCE_KM:
-                # print("Path len:",d)
+            if d > self.max_walking_distance:
                 return "car"
             i += 1
         return "walking"

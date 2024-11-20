@@ -87,10 +87,12 @@ to setup-world
   py:setup py:python
   py:set "tick_t" tick-time-in-mins
   py:set "over_break_p" over-break-p
+  py:set "max_walking_d" max-walking-distance-km
   (py:run
     "from path_nav import *"
     "evac_node = '867E0091-5D44-4879-9822-2F810BAED829'"
     "navigator = Navigator(evac_node)"
+    "navigator.setMaxWalkingDistance(max_walking_d)"
     "set_tick_time_mins(tick_t)"
     "set_over_break_p(over_break_p)"
   )
@@ -551,6 +553,17 @@ get-no-evacuated
 0
 1
 11
+
+INPUTBOX
+1185
+207
+1328
+267
+max-walking-distance-km
+2.0
+1
+0
+Number
 
 @#$#@#$#@
 ## WHAT IS IT?
