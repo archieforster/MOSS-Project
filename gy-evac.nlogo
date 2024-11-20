@@ -402,7 +402,7 @@ INPUTBOX
 958
 89
 initial-people
-10000.0
+15000.0
 1
 0
 Number
@@ -505,17 +505,6 @@ get-no-active-cars
 11
 
 INPUTBOX
-963
-29
-1118
-89
-max-walk-distance-km
-0.0
-1
-0
-Number
-
-INPUTBOX
 1185
 141
 1327
@@ -562,7 +551,7 @@ INPUTBOX
 1328
 267
 max-walking-distance-km
-2.0
+2.5
 1
 0
 Number
@@ -573,7 +562,7 @@ INPUTBOX
 1340
 335
 terminate-evac-distance-km
-1.0
+0.3
 1
 0
 Number
