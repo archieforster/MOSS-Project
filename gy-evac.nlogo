@@ -88,11 +88,13 @@ to setup-world
   py:set "tick_t" tick-time-in-mins
   py:set "over_break_p" over-break-p
   py:set "max_walking_d" max-walking-distance-km
+  py:set "terminate_d" terminate-evac-distance-km
   (py:run
     "from path_nav import *"
     "evac_node = '867E0091-5D44-4879-9822-2F810BAED829'"
     "navigator = Navigator(evac_node)"
     "navigator.setMaxWalkingDistance(max_walking_d)"
+    "navigator.setTerminateDistance(terminate_d)"
     "set_tick_time_mins(tick_t)"
     "set_over_break_p(over_break_p)"
   )
@@ -354,8 +356,8 @@ GRAPHICS-WINDOW
 16
 -16
 16
-0
-0
+1
+1
 1
 ticks
 30.0
@@ -400,7 +402,7 @@ INPUTBOX
 958
 89
 initial-people
-10.0
+10000.0
 1
 0
 Number
@@ -561,6 +563,17 @@ INPUTBOX
 267
 max-walking-distance-km
 2.0
+1
+0
+Number
+
+INPUTBOX
+1185
+275
+1340
+335
+terminate-evac-distance-km
+1.0
 1
 0
 Number
