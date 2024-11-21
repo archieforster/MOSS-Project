@@ -295,6 +295,15 @@ to go
   ; Add termination conditions
   if get-no-evacuating = 0 and count people with [evacuate-now? = false] = 0 [
     print "Evacuation complete! Simulation stopping..."
+
+    py:run (word "navigator.exportJourneyMetrics(" 
+      initial-people ", "
+      evacuation-probability ", " 
+      tick-time-in-mins ", "
+      warning-interval-time-mins
+      ")"
+    )
+
     stop
   ]
 

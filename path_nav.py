@@ -371,25 +371,34 @@ class Navigator:
             del self.vehicle_states[vehicle_id]
         self.vehicles_to_delete = []
     
-    def exportJourneyMetrics(self, initial_people, evacuation_prob, tick_time, filename=None):
-            """Export journey metrics to a CSV file with parameters in the filename"""
-            if filename is None:
-                filename = f'journey_metrics_p{initial_people}_evp{evacuation_prob}_tick{tick_time}.csv'
+    def exportJourneyMetrics(self, initial_people, evacuation_prob, tick_time, interval_time, filename=None):
+        """Export journey metrics to a CSV file with parameters in the filename"""
+        if filename is None:
+            filename = 'jm_'
+            filename += f'_p{initial_people}'
+            filename += f'_evp{evacuation_prob}'
+            filename += f'_tick{tick_time}'
+            filename += f'_max_walk_d{self._max_walking_distance}'
+            filename += f'_term_d{self._terminate_distance}'
+            filename += f'_interval{interval_time}'  
+            filename += '.csv'
+        
+        # Check if file already exists, append a unique number if so
+        base, ext = os.path.splitext(filename)
+        i = 1
+        while os.path.exists(filename):
+            filename = f"{base}_{i}{ext}"
+            i += 1
+        
+        with open(filename, 'w', newline='') as csvfile:
+            fieldnames = ['car_id', 'passengers', 'ideal_time', 'actual_time']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             
-            # Check if file already exists, append a unique number if so
-            base, ext = os.path.splitext(filename)
-            i = 1
-            while os.path.exists(filename):
-                filename = f"{base}_{i}{ext}"
-                i += 1
+            writer.writeheader()
+            for metric in self.journey_metrics:
+                writer.writerow(metric)
             
-            with open(filename, 'w', newline='') as csvfile:
-                fieldnames = ['car_id', 'passengers', 'ideal_time', 'actual_time']
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                
-                writer.writeheader()
-                for metric in self.journey_metrics:
-                    writer.writerow(metric)
+        return filename
     
     def getNoActiveCars(self):
         return self.total_cars
