@@ -153,7 +153,7 @@ class Navigator:
         self.road_network.setEvacNode(evac_point)
         self.road_network.calculatePaths()
         
-        self.vehicle_states = {} #Key = vehicle_id, Value: {road:(a,b), length_travelled, speed, path, people, vehicle_type, distance_left}   
+        self.vehicle_states = {} #Key = vehicle_id, Value: {road:(a,b), length_travelled, speed, path, people, vehicle_type, distance_left, start_tick}   
         self.vehicles_to_delete = []
         self.total_in_cars = 0
         self.total_evacuated =0 
@@ -161,6 +161,7 @@ class Navigator:
         self.total_walking = 0
         self._max_walking_distance = 0
         self._terminate_distance = 0
+        self._current_tick = 0
         
         self.journey_metrics = []
     
@@ -205,7 +206,9 @@ class Navigator:
                 'car_id': vehicle_id,
                 'passengers': self.vehicle_states[vehicle_id]["people"],
                 'ideal_time': ideal_time,
-                'actual_time': actual_time
+                'actual_time': actual_time,
+                'start_tick': self.vehicle_states[vehicle_id]["start_tick"],
+                'end_tick': self._current_tick
             })
             
         if self.vehicle_states[vehicle_id]["vehicle_type"] == "walking":
@@ -250,7 +253,8 @@ class Navigator:
             "vehicle_type":vehicle_type,
             "distance_left": 0,
             "actual_time": 0,  # Track actual journey time
-            "ideal_time": 0   # Track ideal journey time
+            "ideal_time": 0,   # Track ideal journey time
+            "start_tick": self._current_tick
             }
         if vehicle_type == "car":
             self.road_network.road_data[(on_node,path[1])]["cars"] += 1
@@ -306,7 +310,8 @@ class Navigator:
         # Return all ids
         return vehicle_ids
     
-    def updateVehicles(self):
+    def updateVehicles(self, tick_count):
+        self._current_tick = tick_count
         for vehicle_id in self.vehicle_states.keys():
             # Update vehicle speed
             # Speed = km/tick

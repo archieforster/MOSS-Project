@@ -296,9 +296,9 @@ to go
   if get-no-evacuating = 0 and count people with [evacuate-now? = false] = 0 [
     print "Evacuation complete! Simulation stopping..."
 
-    py:run (word "navigator.exportJourneyMetrics(" 
+    py:run (word "navigator.exportJourneyMetrics("
       initial-people ", "
-      evacuation-probability ", " 
+      evacuation-probability ", "
       tick-time-in-mins ", "
       warning-interval-time-mins
       ")"
@@ -560,7 +560,7 @@ INPUTBOX
 1328
 267
 max-walking-distance-km
-2.5
+5.0
 1
 0
 Number
