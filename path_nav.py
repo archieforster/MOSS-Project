@@ -421,7 +421,7 @@ class Navigator:
         return self.total_evacuated
     
     def getAvgNoPeoplePerCar(self):
-        if len(self.vehicle_states) > 0:
+        if self.total_cars > 0:
             return (self.total_in_cars) / self.total_cars
         return 0
         
