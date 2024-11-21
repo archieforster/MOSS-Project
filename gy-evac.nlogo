@@ -367,8 +367,8 @@ GRAPHICS-WINDOW
 16
 -16
 16
-0
-0
+1
+1
 1
 ticks
 30.0
@@ -413,7 +413,7 @@ INPUTBOX
 958
 89
 initial-people
-15000.0
+1000.0
 1
 0
 Number
@@ -562,7 +562,7 @@ INPUTBOX
 1328
 267
 max-walking-distance-km
-5.0
+0.3
 1
 0
 Number
