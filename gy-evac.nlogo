@@ -290,7 +290,9 @@ to go
   if (ticks mod floor (warning-interval-time-mins / tick-time-in-mins) = 0) [
     start-evacuation
   ]
-  py:run "navigator.updateVehicles()"
+
+  py:set "tick_count_nlogo" ticks
+  py:run "navigator.updateVehicles(tick_count_nlogo)"
 
   ; Add termination conditions
   if get-no-evacuating = 0 and count people with [evacuate-now? = false] = 0 [
@@ -365,8 +367,8 @@ GRAPHICS-WINDOW
 16
 -16
 16
-1
-1
+0
+0
 1
 ticks
 30.0

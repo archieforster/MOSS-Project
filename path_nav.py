@@ -396,7 +396,7 @@ class Navigator:
             i += 1
         
         with open(filename, 'w', newline='') as csvfile:
-            fieldnames = ['car_id', 'passengers', 'ideal_time', 'actual_time']
+            fieldnames = ['car_id', 'passengers', 'ideal_time', 'actual_time', 'start_tick', 'end_tick']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             
             writer.writeheader()
