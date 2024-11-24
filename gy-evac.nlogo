@@ -86,13 +86,15 @@ to setup-world
   ; Python setup
   py:setup py:python
   py:set "tick_t" tick-time-in-mins
-  py:set "over_break_p" over-break-p
+  py:set "over_break_p" over-break-probability
   py:set "max_walking_d" max-walking-distance-km
+  py:set "terminate_d" terminate-evac-distance-km
   (py:run
     "from path_nav import *"
     "evac_node = '867E0091-5D44-4879-9822-2F810BAED829'"
     "navigator = Navigator(evac_node)"
     "navigator.setMaxWalkingDistance(max_walking_d)"
+    "navigator.setTerminateDistance(terminate_d)"
     "set_tick_time_mins(tick_t)"
     "set_over_break_p(over_break_p)"
   )
@@ -288,11 +290,22 @@ to go
   if (ticks mod floor (warning-interval-time-mins / tick-time-in-mins) = 0) [
     start-evacuation
   ]
-  py:run "navigator.updateVehicles()"
+
+  py:set "tick_count_nlogo" ticks
+  py:run "navigator.updateVehicles(tick_count_nlogo)"
 
   ; Add termination conditions
   if get-no-evacuating = 0 and count people with [evacuate-now? = false] = 0 [
     print "Evacuation complete! Simulation stopping..."
+
+    py:run (word "navigator.exportJourneyMetrics("
+      initial-people ", "
+      evacuation-probability ", "
+      tick-time-in-mins ", "
+      warning-interval-time-mins
+      ")"
+    )
+
     stop
   ]
 
@@ -354,8 +367,8 @@ GRAPHICS-WINDOW
 16
 -16
 16
-0
-0
+1
+1
 1
 ticks
 30.0
@@ -400,7 +413,7 @@ INPUTBOX
 958
 89
 initial-people
-10.0
+15000.0
 1
 0
 Number
@@ -459,8 +472,8 @@ SLIDER
 179
 974
 212
-over-break-p
-over-break-p
+over-break-probability
+over-break-probability
 0
 1
 0.06
@@ -501,17 +514,6 @@ get-no-active-cars
 0
 1
 11
-
-INPUTBOX
-963
-29
-1118
-89
-max-walk-distance-km
-0.0
-1
-0
-Number
 
 INPUTBOX
 1185
@@ -560,7 +562,18 @@ INPUTBOX
 1328
 267
 max-walking-distance-km
-2.0
+0.3
+1
+0
+Number
+
+INPUTBOX
+1185
+275
+1340
+335
+terminate-evac-distance-km
+0.3
 1
 0
 Number
