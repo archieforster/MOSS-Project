@@ -290,24 +290,24 @@ class Navigator:
         # Determine capacity from vehicle type
         if vehicle_type == "car":
             vehicle_capacity = 5
-        # Calc number of vehicles needed
-        if num_of_evacuees % vehicle_capacity == 0:
-            num_vehicles_init = num_of_evacuees // vehicle_capacity
-        else:
-            num_vehicles_init = 1 + num_of_evacuees // vehicle_capacity
-        # Init n-1 vehicles as full
-        for i in range(num_vehicles_init - 1):
+            
+        num_of_full_vehicles = num_of_evacuees // vehicle_capacity
+        remainder = num_of_evacuees % vehicle_capacity
+        
+        # Init full vehicles
+        for i in range(num_of_full_vehicles):
             id = self.__vehicleInit(start_node,"car",path)
             self.vehicle_states[id]["people"] = vehicle_capacity
             self.vehicle_states[id]["distance_left"] = path_length
             self.total_in_cars += vehicle_capacity
             vehicle_ids.append(id)
         # Init final vehicle with remainder    
-        id = self.__vehicleInit(start_node,"car",path)
-        self.vehicle_states[id]["people"] = vehicle_capacity if (num_of_evacuees % vehicle_capacity == 0) else (num_of_evacuees % vehicle_capacity) 
-        self.vehicle_states[id]["distance_left"] = path_length
-        self.total_in_cars += vehicle_capacity if (num_of_evacuees % vehicle_capacity == 0) else (num_of_evacuees % vehicle_capacity)
-        vehicle_ids.append(id)
+        if remainder > 0:
+            id = self.__vehicleInit(start_node,"car",path)
+            self.vehicle_states[id]["people"] = remainder
+            self.vehicle_states[id]["distance_left"] = path_length
+            self.total_in_cars += remainder
+            vehicle_ids.append(id)
         # Return all ids
         return vehicle_ids
     
