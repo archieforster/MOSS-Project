@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple
 
 _tick_time_mins = 0.25
 _over_break_p = 0.1
-OVER_BREAK_SPEED_REDUCTION = 0.05 # 5%
+OVER_BREAK_SPEED_REDUCTION = 0.1 # 10%
 ACCELERATION = 10 * _tick_time_mins # Increase in speed in km/h per tick
 
 #TODO:
@@ -164,6 +164,7 @@ class Navigator:
         self._current_tick = 0
         
         self.journey_metrics = []
+        self.prev_deleted = []
     
     def setMaxWalkingDistance(self,d):
         self._max_walking_distance = d
@@ -179,7 +180,7 @@ class Navigator:
         inter_car_distance = length / numCars
         
         if inter_car_distance < max_speed and numCars > 1:
-            return (OVER_BREAK_SPEED_REDUCTION * inter_car_distance) if (random.random() < _over_break_p) else inter_car_distance
+            return ((1 - OVER_BREAK_SPEED_REDUCTION) * inter_car_distance) if (random.random() < _over_break_p) else inter_car_distance
         speed_kmh = tickSpeedToKmh(current_speed) #in kmh
         return min(kmhToTickSpeed(speed_kmh + ACCELERATION), max_speed)
     
@@ -303,9 +304,9 @@ class Navigator:
             vehicle_ids.append(id)
         # Init final vehicle with remainder    
         id = self.__vehicleInit(start_node,"car",path)
-        self.vehicle_states[id]["people"] = num_of_evacuees % vehicle_capacity
+        self.vehicle_states[id]["people"] = vehicle_capacity if (num_of_evacuees % vehicle_capacity == 0) else (num_of_evacuees % vehicle_capacity) 
         self.vehicle_states[id]["distance_left"] = path_length
-        self.total_in_cars += num_of_evacuees % vehicle_capacity
+        self.total_in_cars += vehicle_capacity if (num_of_evacuees % vehicle_capacity == 0) else (num_of_evacuees % vehicle_capacity)
         vehicle_ids.append(id)
         # Return all ids
         return vehicle_ids
@@ -374,6 +375,7 @@ class Navigator:
         # print("N.o. vehicles:",len(self.vehicle_states))
         for vehicle_id in self.vehicles_to_delete:
             del self.vehicle_states[vehicle_id]
+        self.prev_deleted = self.vehicles_to_delete[:]
         self.vehicles_to_delete = []
     
     def exportJourneyMetrics(self, initial_people, evacuation_prob, tick_time, interval_time, filename=None):
@@ -419,6 +421,9 @@ class Navigator:
     
     def getNoEvacuated(self):
         return self.total_evacuated
+    
+    def getJustFinishedEvac(self):
+        return self.prev_deleted
     
     def getAvgNoPeoplePerCar(self):
         if self.total_cars > 0:

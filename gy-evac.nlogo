@@ -86,7 +86,7 @@ to setup-world
   ; Python setup
   py:setup py:python
   py:set "tick_t" tick-time-in-mins
-  py:set "over_break_p" over-break-p
+  py:set "over_break_p" over-break-probability
   py:set "max_walking_d" max-walking-distance-km
   py:set "terminate_d" terminate-evac-distance-km
   (py:run
@@ -413,7 +413,7 @@ INPUTBOX
 958
 89
 initial-people
-1000.0
+15000.0
 1
 0
 Number
@@ -472,8 +472,8 @@ SLIDER
 179
 974
 212
-over-break-p
-over-break-p
+over-break-probability
+over-break-probability
 0
 1
 0.06
