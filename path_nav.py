@@ -201,13 +201,12 @@ class Navigator:
             self.total_in_cars -= self.vehicle_states[vehicle_id]["people"]
             self.total_evacuated += self.vehicle_states[vehicle_id]["people"]
             ideal_time = self.__calculateIdealTime(vehicle_id)
-            actual_time = self.vehicle_states[vehicle_id].get('actual_time', 0)
             # Store journey metrics for CSV
             self.journey_metrics.append({
                 'car_id': vehicle_id,
                 'passengers': self.vehicle_states[vehicle_id]["people"],
                 'ideal_time': ideal_time,
-                'actual_time': actual_time,
+                'actual_time': (self._current_tick - self.vehicle_states[vehicle_id]["start_tick"]) * _tick_time_mins,
                 'start_tick': self.vehicle_states[vehicle_id]["start_tick"],
                 'end_tick': self._current_tick
             })
@@ -227,7 +226,7 @@ class Navigator:
             road = (path[i], path[i+1])
             road_length = self.road_network.road_data[road]["length"]
             ideal_speed = self.road_network.ideal_speeds[road]
-            road_time = road_length / ideal_speed
+            road_time = road_length / tickSpeedToKmh(ideal_speed)
             ideal_total_time += road_time
         
         return ideal_total_time
@@ -253,8 +252,6 @@ class Navigator:
             "people":0,
             "vehicle_type":vehicle_type,
             "distance_left": 0,
-            "actual_time": 0,  # Track actual journey time
-            "ideal_time": 0,   # Track ideal journey time
             "start_tick": self._current_tick
             }
         if vehicle_type == "car":
@@ -319,7 +316,7 @@ class Navigator:
             # print("===VEHICLE:"+str(vehicle_id)+"===")
             road = self.vehicle_states[vehicle_id]["road"]
             # Increment actual time
-            self.vehicle_states[vehicle_id]["actual_time"] += _tick_time_mins
+            # self.vehicle_states[vehicle_id]["actual_time"] += _tick_time_mins
             # print("ON-ROAD:",road)
             # print("VEHICLE-TYPE:",self.vehicle_states[vehicle_id]["vehicle_type"])
             if self.vehicle_states[vehicle_id]["vehicle_type"] == "car":
