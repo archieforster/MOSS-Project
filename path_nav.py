@@ -431,21 +431,21 @@ class Navigator:
         
 
 # Example usage
-def main():
+# def main():
     
-    # with fiona.open("./data/SW_RoadNode.shp") as shapefile:
-    #     for n in shapefile:
-    #         print(n)
+#     # with fiona.open("./data/SW_RoadNode.shp") as shapefile:
+#     #     for n in shapefile:
+#     #         print(n)
     
-    evac_point = "627448CE-0C7F-4DA1-A3A5-8FD22F0FC07E"
-    nav = Navigator(evac_point)
-    #nav.initVehicles(1,"F9880B09-CE9B-4C9C-AE5E-29FA6214424E")
-    nav.initVehicles(5,"B5D7B9D7-9121-4FDA-99F7-B576A9669395")
-    tick = 0
-    while len(nav.vehicle_states) > 0:
-        nav.updateVehicles(tick)
-        tick += 1
-    print(nav.journey_metrics)
+#     evac_point = "627448CE-0C7F-4DA1-A3A5-8FD22F0FC07E"
+#     nav = Navigator(evac_point)
+#     #nav.initVehicles(1,"F9880B09-CE9B-4C9C-AE5E-29FA6214424E")
+#     nav.initVehicles(5,"B5D7B9D7-9121-4FDA-99F7-B576A9669395")
+#     tick = 0
+#     while len(nav.vehicle_states) > 0:
+#         nav.updateVehicles(tick)
+#         tick += 1
+#     print(nav.journey_metrics)
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
