@@ -174,13 +174,18 @@ class Navigator:
     
     def __getCarSpeed(self,current_speed, road):
         numCars = self.road_network.road_data[road]["cars"]
-        max_speed = self.road_network.road_data[road]["max_speed"] #km per tick
         length = self.road_network.road_data[road]["length"] # Distance in km
         
+        # Get max speed based on road data and if congested
+        max_speed = self.road_network.road_data[road]["max_speed"] #km per tick
         inter_car_distance = length / numCars
-        
         if inter_car_distance < max_speed and numCars > 1:
-            return ((1 - OVER_BREAK_SPEED_REDUCTION) * inter_car_distance) if (random.random() < _over_break_p) else inter_car_distance
+            max_speed = inter_car_distance     
+        
+        # If overbreaking...
+        if random.random() < _over_break_p:
+            return min((1 - OVER_BREAK_SPEED_REDUCTION) * max_speed, (1 - OVER_BREAK_SPEED_REDUCTION) * current_speed)
+        # Else, accelerate from current upto maximum speed
         speed_kmh = tickSpeedToKmh(current_speed) #in kmh
         return min(kmhToTickSpeed(speed_kmh + ACCELERATION), max_speed)
     
@@ -273,7 +278,7 @@ class Navigator:
         path = self.road_network.getPathFromNode(start_node)
         path_length = self.__getPathLength(path)
         vehicle_type = "car" if path_length > self._max_walking_distance else "walking"
-        # print("Vehicle-type-determined:",vehicle_type)
+        # # print("Vehicle-type-determined:",vehicle_type)
         # Handle walking
         if vehicle_type == "walking":
             for i in range(num_of_evacuees):
@@ -311,21 +316,21 @@ class Navigator:
     
     def updateVehicles(self, tick_count):
         self._current_tick = tick_count
-        print("t =",tick_count * _tick_time_mins)
+        # print("t =",tick_count * _tick_time_mins)
         for vehicle_id in self.vehicle_states.keys():
             # Update vehicle speed
             # Speed = km/tick
-            print("===VEHICLE:"+str(vehicle_id)+"===")
+            # print("===VEHICLE:"+str(vehicle_id)+"===")
             road = self.vehicle_states[vehicle_id]["road"]
             # Increment actual time
             # self.vehicle_states[vehicle_id]["actual_time"] += _tick_time_mins
-            print("ON-ROAD:",road)
-            print("VEHICLE-TYPE:",self.vehicle_states[vehicle_id]["vehicle_type"])
+            # print("ON-ROAD:",road)
+            # print("VEHICLE-TYPE:",self.vehicle_states[vehicle_id]["vehicle_type"])
             if self.vehicle_states[vehicle_id]["vehicle_type"] == "car":
                 self.vehicle_states[vehicle_id]["speed"] = self.__getCarSpeed(self.vehicle_states[vehicle_id]["speed"], road)
-            print("ROAD SPEED:", self.road_network.road_data[road]["max_speed"])
-            print("VEHICLE SPEED:",self.vehicle_states[vehicle_id]["speed"])
-            print("ROAD-LEN:",self.road_network.road_data[road]["length"])
+            # print("ROAD SPEED:", self.road_network.road_data[road]["max_speed"])
+            # print("VEHICLE SPEED:",self.vehicle_states[vehicle_id]["speed"])
+            # print("ROAD-LEN:",self.road_network.road_data[road]["length"])
             # Update vehicle travel distance
             # Distance travelled in tick = speed
             self.vehicle_states[vehicle_id]["length_travelled"] += self.vehicle_states[vehicle_id]["speed"]
@@ -338,19 +343,19 @@ class Navigator:
             # If moved onto next road
             while d_until_road_end <= 0 and self.vehicle_states[vehicle_id]["distance_left"] > self._terminate_distance:
                 # IF BEYOND EVAC POINT, ROUTE IS FINISHED SO MARK AS FINISHED JOURNEY
-                print(road[1], self.road_network.evacNode, road[1] == self.road_network.evacNode)
+                # print(road[1], self.road_network.evacNode, road[1] == self.road_network.evacNode)
                 if road[1] == self.road_network.evacNode or self.vehicle_states[vehicle_id]["distance_left"] <= self._terminate_distance:
-                    print("VEHICLE",vehicle_id,"FINISHED ROUTE")
+                    # print("VEHICLE",vehicle_id,"FINISHED ROUTE")
                     self.__terminateJourney(vehicle_id)
                     break
                 # Move off old road
                 if self.vehicle_states[vehicle_id]["vehicle_type"] == "car":
                     self.road_network.road_data[road]["cars"] -= 1
                 # Calc % of tick spend moving in old road
-                print("--MOVE-ONTO-NEW_ROAD--")
+                # print("--MOVE-ONTO-NEW_ROAD--")
                 d_in_old_road = self.vehicle_states[vehicle_id]["speed"] + d_until_road_end
                 t_in_old_road = d_in_old_road / self.vehicle_states[vehicle_id]["speed"]
-                print("T_OLD_ROAD:",t_in_old_road)
+                # print("T_OLD_ROAD:",t_in_old_road)
                 # Move onto next road
                 road = self.__getNextRoad(vehicle_id)
                 self.vehicle_states[vehicle_id]["road"] = road
@@ -358,20 +363,20 @@ class Navigator:
                     self.road_network.road_data[road]["cars"] += 1
                 # Calc distance travelled on new road
                 t_in_new_road = 1 - t_in_old_road
-                print("T-NEW_ROAD:",t_in_new_road)
-                print("NEW-ROAD:",road)
-                print("NEW-ROAD-LEN:",self.road_network.road_data[road]["length"])
-                print("NEW-ROAD-SPEED:",self.road_network.road_data[road]["max_speed"])
+                # print("T-NEW_ROAD:",t_in_new_road)
+                # print("NEW-ROAD:",road)
+                # print("NEW-ROAD-LEN:",self.road_network.road_data[road]["length"])
+                # print("NEW-ROAD-SPEED:",self.road_network.road_data[road]["max_speed"])
                 if self.vehicle_states[vehicle_id]["vehicle_type"] == "car":
                     self.vehicle_states[vehicle_id]["speed"] = self.__getCarSpeed(self.vehicle_states[vehicle_id]["speed"], road)
-                print("NEW-SPEED",self.vehicle_states[vehicle_id]["speed"])
+                # print("NEW-SPEED",self.vehicle_states[vehicle_id]["speed"])
                 self.vehicle_states[vehicle_id]["length_travelled"] = t_in_new_road * self.vehicle_states[vehicle_id]["speed"]
-                print("NEW-DISTANCE-TRAVELLED:",self.vehicle_states[vehicle_id]["length_travelled"])
+                # print("NEW-DISTANCE-TRAVELLED:",self.vehicle_states[vehicle_id]["length_travelled"])
                 d_until_road_end = self.road_network.road_data[road]["length"] - self.vehicle_states[vehicle_id]["length_travelled"]
-                print("\n")
+                # print("\n")
             
         # Delete all vehicles which have finished
-        print("N.o. vehicles:",len(self.vehicle_states))
+        # print("N.o. vehicles:",len(self.vehicle_states))
         for vehicle_id in self.vehicles_to_delete:
             del self.vehicle_states[vehicle_id]
         self.prev_deleted = self.vehicles_to_delete[:]
@@ -435,7 +440,7 @@ class Navigator:
     
 #     # with fiona.open("./data/SW_RoadNode.shp") as shapefile:
 #     #     for n in shapefile:
-#     #         print(n)
+#     #         # print(n)
     
 #     evac_point = "627448CE-0C7F-4DA1-A3A5-8FD22F0FC07E"
 #     nav = Navigator(evac_point)
@@ -445,7 +450,7 @@ class Navigator:
 #     while len(nav.vehicle_states) > 0:
 #         nav.updateVehicles(tick)
 #         tick += 1
-#     print(nav.journey_metrics)
+#     # print(nav.journey_metrics)
 
 # if __name__ == "__main__":
 #     main()
