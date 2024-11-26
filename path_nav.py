@@ -218,7 +218,7 @@ class Navigator:
         self.vehicles_to_delete.append(vehicle_id)
     
     def __calculateIdealTime(self, car_id):
-        """Calculate the ideal journey time if no cars were on the road"""
+        """Calculate the ideal journey time if no cars were on the road IN MINS"""
         path = self.vehicle_states[car_id]["path"]
         ideal_total_time = 0
         
@@ -226,7 +226,7 @@ class Navigator:
             road = (path[i], path[i+1])
             road_length = self.road_network.road_data[road]["length"]
             ideal_speed = self.road_network.ideal_speeds[road]
-            road_time = road_length / tickSpeedToKmh(ideal_speed)
+            road_time = (road_length / tickSpeedToKmh(ideal_speed)) * 60
             ideal_total_time += road_time
         
         return ideal_total_time
