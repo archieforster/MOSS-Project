@@ -5,11 +5,13 @@ extensions[
 
 ; Cars, used to move people
 breed [cars car]
-cars-own[
-  id ; Used to reference with python code
-  occupants ; Number of people in car
-  on-node ; Node car is on
-  to-node ; Node car is moving to
+cars-own [
+  id              ; Used to reference with python code
+  occupants       ; Number of people in car
+  on-node         ; Node car is on
+  to-node         ; Node car is moving to
+  path-complete?  ; Flag to track if car has completed its path
+  vehicle-category    ; Added to track if vehicle is car or walking
 ]
 
 ; Buildings
@@ -24,10 +26,14 @@ buildings-own[
 
 ; People
 breed [people person]
-people-own[
-  assigned-building ; The building this person is assigned to
-  evacuate-now?         ; Track if the person has chosen to evacuate in this period
-  evacuating? ; Tracks if person is already evacuating
+people-own [
+  assigned-building   ; The building this person is assigned to
+  evacuate-now?       ; Track if the person has chosen to evacuate in this period
+  evacuating?         ; Tracks if person is already evacuating
+  on-node             ; The current road-node person is on
+  to-node             ; The next road-node person is walking to
+  walking-path        ; The path the person is following (list of nodes)
+  walking-complete?   ; Flag to indicate if person has finished walking
 ]
 
 breed [road-nodes road-node]
@@ -41,7 +47,10 @@ globals [
   evacuees-in-transit ; Track number of people currently evacuating
   evacuees-completed ; Track number of people who have completed evacuation
   python-output ; Store Python script output
-  vehicle-capacity;
+  vehicle-capacity
+  vehicles-to-create  ; List of vehicles that need to be created
+  active-cars        ; List of currently active cars
+  walking-speed      ; Speed for walking people
 ]
 
 to clear
@@ -50,11 +59,18 @@ to clear
 end
 
 to setup
-  clear ; This does not seem to be working and I am not sure why (makes tick = 0) tried set tick 0 but still did not work.
+  clear
   reset-evacuation-stats
   setup-world
   clear-ticks
   reset-ticks
+  set vehicles-to-create []
+  set active-cars []
+  set walking-speed 0.1 ; Set walking speed (adjust as needed)
+
+  ; Set up visual appearance
+  set-default-shape cars "car"
+  set-default-shape people "person"
 end
 
 
@@ -86,7 +102,7 @@ to setup-world
   ; Python setup
   py:setup py:python
   py:set "tick_t" tick-time-in-mins
-  py:set "over_break_p" over-break-probability
+  py:set "over_break_p" over-break-p
   py:set "max_walking_d" max-walking-distance-km
   py:set "terminate_d" terminate-evac-distance-km
   (py:run
@@ -220,81 +236,128 @@ to start-evacuation ; Thought seperating start evac and continue evac may make l
       ;py:run "print('Evacuating',num_evacuees,'from',start_node)"
     ]
   ]
-
-;  ; Update Python output with initial evacuation statistics
-;  set python-output (word python-output "\nInitial Evacuation Statistics:"
-;    "\nEvacuation Probability: " evacuation-probability
-;    "\nTotal Evacuees: " total-evacuees
-;    "\nEvacuees in Transit: " evacuees-in-transit)
 end
 
-; Updates each vehicle's movement --> no graphics
-;to evacuate-step
-;  ; Make a copy of vehicles-info to avoid modifying it during iteration
-;  let current-vehicles vehicles-info
-;
-;  ; Update cars through python
-;  py:run "navigator.updateCars()"
-;  let finished-vehicles py:run "navigator.getCarsFinishedInUpdate()"
+to create-new-vehicles
+  ; Get new vehicles from Python
+  let new-vehicles py:runresult "navigator.getNewVehicles()"
 
-;  ; Only proceed if there are vehicles to process
-;  if is-list? current-vehicles and not empty? current-vehicles [
-;    foreach current-vehicles [
-;      vehicle ->
-;      if is-list? vehicle and length vehicle >= 3 [
-;        let vehicle-id item 0 vehicle
-;        let current-node item 1 vehicle
-;        let evacuee item 2 vehicle
-;
-;        ; Request the next node from Python for this vehicle
-;        py:set "car_id" vehicle-id
-;        let next-node py:runresult "navigator.popCarNextNode(car_id)"
-;
-;        ; Move the evacuee associated with this vehicle if there is a next node
-;        ifelse next-node != nobody [
-;          ask evacuee [
-;            setxy [xcor] of next-node [ycor] of next-node
-;          ]
-;          ; Update vehicle information with the new node
-;          let updated-vehicle (list vehicle-id next-node evacuee)
-;          set vehicles-info replace-item (position vehicle vehicles-info) vehicles-info updated-vehicle
-;
-;          ; Get updated Python vehicle state
-;          let python-car-info py:runresult "navigator.car_states[car_id]"
-;          set python-output (word python-output "\nVehicle Update:"
-;            "\nVehicle ID: " vehicle-id
-;            "\nNew Node: " next-node
-;            "\nVehicle State: " python-car-info)
-;        ]
-;        [
-;          ; If no next node, evacuation is complete for this vehicle
-;          set evacuees-completed evacuees-completed + 1
-;          set evacuees-in-transit evacuees-in-transit - 1
-;          ; Remove the completed vehicle from vehicles-info
-;          set vehicles-info remove vehicle vehicles-info
-;        ]
-;      ]
-;    ]
-;  ]
-;
-;  ; Update Python output with current evacuation statistics
-;  set python-output (word python-output "\nCurrent Evacuation Statistics:"
-;    "\nEvacuation Probability: " evacuation-probability
-;    "\nTotal Evacuees: " total-evacuees
-;    "\nEvacuees in Transit: " evacuees-in-transit
-;    "\nEvacuees Completed: " evacuees-completed)
-;end
+  foreach new-vehicles [ vehicle-info ->
+    let car-id item 0 vehicle-info
+    let start-node-id item 1 vehicle-info
+    let num-occupants item 2 vehicle-info
+
+    ; Find the starting node
+    let start-node one-of road-nodes with [id = start-node-id]
+
+    ; Create the car/walking person
+    create-cars 1 [
+      set id car-id
+      set occupants num-occupants
+      set on-node start-node
+      set to-node nobody
+      set path-complete? false
+      set vehicle-category item 3 vehicle-info
+
+      ifelse vehicle-category = "walking" [
+        set color green
+        set shape "person"
+        set size 0.5
+      ] [
+        set color yellow
+        set shape "car"
+        set size 0.5
+      ]
+
+      ; Position at the starting node
+      move-to start-node
+    ]
+]
+end
+
+; Modify update-car-positions procedure:
+to update-car-positions
+  ; Get updated positions from Python
+  let car-updates py:runresult "navigator.getCarPositions()"
+
+  ; Get list of vehicles that just finished evacuating
+  let just-finished py:runresult "navigator.getJustFinishedEvac()"
+
+  ; Remove vehicles that just finished evacuating
+  foreach just-finished [ finished-id ->
+    ask cars with [id = finished-id] [
+      die
+    ]
+  ]
+
+  foreach car-updates [ update ->
+    let car-id item 0 update
+    let current-node-id item 1 update
+    let next-node-id item 2 update
+    let status item 3 update
+    let vehicle-type item 4 update
+
+    ask cars with [id = car-id] [
+      ; Find the nodes
+      let current-node one-of road-nodes with [id = current-node-id]
+      let next-node nobody
+
+      ; Only try to find next node if it exists and isn't "none"
+      if next-node-id != "none" [
+        set next-node one-of road-nodes with [id = next-node-id]
+      ]
+
+      ; Otherwise, update position and appearance
+      if status != "completed" [
+        ifelse vehicle-type = "walking" [
+          set color green ; Walking agents stay green
+        ] [
+          if status = "walking" [ set color green ]
+          if status = "active" [ set color yellow ]
+        ]
+
+        ; Only update position if we have a valid current node and next node
+        if current-node != nobody [
+          ifelse next-node != nobody [
+            ; If there's a next node, face and move towards it
+            face next-node
+            set on-node current-node
+            set to-node next-node
+            move-to current-node
+
+            ; If walking, move at walking speed
+            if vehicle-type = "walking" [
+              fd walking-speed
+            ]
+          ] [
+            ; If no next node, just update on-node without any graphical movement
+            set on-node current-node
+            set to-node nobody
+          ]
+        ]
+      ]
+    ]
+  ]
+end
+
 
 to go
-  ;start-evacuation
   if (ticks mod floor (warning-interval-time-mins / tick-time-in-mins) = 0) [
     start-evacuation
   ]
 
+  ; Create any new vehicles
+  create-new-vehicles
+
+  ; Update Python simulation
   py:set "tick_count_nlogo" ticks
   py:run "navigator.updateVehicles(tick_count_nlogo)"
 
-  ; Add termination conditions
+  ; Update vehicle positions
+  update-car-positions
+
+
+  ; Rest of your existing go procedure...
   if get-no-evacuating = 0 and count people with [evacuate-now? = false] = 0 [
     print "Evacuation complete! Simulation stopping..."
 
@@ -347,13 +410,13 @@ to-report get-avg-no-people-per-car
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
-210
-10
-781
-582
+172
+18
+786
+633
 -1
 -1
-17.061
+18.364
 1
 10
 1
@@ -472,8 +535,8 @@ SLIDER
 179
 974
 212
-over-break-probability
-over-break-probability
+over-break-p
+over-break-p
 0
 1
 0.06
@@ -488,7 +551,7 @@ INPUTBOX
 1159
 199
 tick-time-in-mins
-0.25
+0.15
 1
 0
 Number
@@ -521,7 +584,7 @@ INPUTBOX
 1327
 201
 warning-interval-time-mins
-30.0
+20.0
 1
 0
 Number
@@ -562,7 +625,7 @@ INPUTBOX
 1328
 267
 max-walking-distance-km
-0.3
+1.0
 1
 0
 Number
@@ -573,7 +636,7 @@ INPUTBOX
 1340
 335
 terminate-evac-distance-km
-0.3
+0.5
 1
 0
 Number
@@ -925,7 +988,7 @@ NetLogo 6.4.0
 @#$#@#$#@
 @#$#@#$#@
 <experiments>
-  <experiment name="test3" repetitions="1" runMetricsEveryStep="true">
+  <experiment name="pop" repetitions="1" runMetricsEveryStep="true">
     <setup>setup</setup>
     <go>go</go>
     <metric>ticks</metric>
@@ -935,11 +998,14 @@ NetLogo 6.4.0
     <metric>get-no-evacuated</metric>
     <metric>get-no-in-cars</metric>
     <metric>get-avg-no-people-per-car</metric>
+    <enumeratedValueSet variable="over-break-p">
+      <value value="0.06"/>
+    </enumeratedValueSet>
     <enumeratedValueSet variable="terminate-evac-distance-km">
       <value value="0.3"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="initial-people">
-      <value value="15000"/>
+      <value value="1000"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="max-walking-distance-km">
       <value value="1"/>
@@ -951,10 +1017,7 @@ NetLogo 6.4.0
       <value value="0.3"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="tick-time-in-mins">
-      <value value="0.5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="over-break-probability">
-      <value value="0.2"/>
+      <value value="0.3"/>
     </enumeratedValueSet>
   </experiment>
 </experiments>

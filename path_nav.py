@@ -5,10 +5,10 @@ import csv
 import os
 from typing import Dict, List, Tuple
 
-_tick_time_mins = 0.25
+_tick_time_mins = 0.30
 _over_break_p = 0.1
 OVER_BREAK_SPEED_REDUCTION = 0.1 # 10%
-ACCELERATION = 432 * _tick_time_mins # Increase in speed in km/h per tick, 432kh/h/min ~ 2m/s/s
+ACCELERATION = 432 * _tick_time_mins # Increase in speed in km/h per tick
 
 #TODO:
 # - Implement walking as mode of transport
@@ -155,8 +155,9 @@ class Navigator:
         
         self.vehicle_states = {} #Key = vehicle_id, Value: {road:(a,b), length_travelled, speed, path, people, vehicle_type, distance_left, start_tick}   
         self.vehicles_to_delete = []
+        self.new_vehicles = [] # Track newly created vehicles
         self.total_in_cars = 0
-        self.total_evacuated =0 
+        self.total_evacuated = 0 
         self.total_cars = 0
         self.total_walking = 0
         self._max_walking_distance = 0
@@ -206,12 +207,13 @@ class Navigator:
             self.total_in_cars -= self.vehicle_states[vehicle_id]["people"]
             self.total_evacuated += self.vehicle_states[vehicle_id]["people"]
             ideal_time = self.__calculateIdealTime(vehicle_id)
+            actual_time = self.vehicle_states[vehicle_id]
             # Store journey metrics for CSV
             self.journey_metrics.append({
                 'car_id': vehicle_id,
                 'passengers': self.vehicle_states[vehicle_id]["people"],
                 'ideal_time': ideal_time,
-                'actual_time': (self._current_tick - self.vehicle_states[vehicle_id]["start_tick"] + 1) * _tick_time_mins,
+                'actual_time': (self._current_tick - self.vehicle_states[vehicle_id]["start_tick"]) * _tick_time_mins,
                 'start_tick': self.vehicle_states[vehicle_id]["start_tick"],
                 'end_tick': self._current_tick
             })
@@ -223,7 +225,7 @@ class Navigator:
         self.vehicles_to_delete.append(vehicle_id)
     
     def __calculateIdealTime(self, car_id):
-        """Calculate the ideal journey time if no cars were on the road IN MINS"""
+        """Calculate the ideal journey time if no cars were on the road"""
         path = self.vehicle_states[car_id]["path"]
         ideal_total_time = 0
         
@@ -231,8 +233,7 @@ class Navigator:
             road = (path[i], path[i+1])
             road_length = self.road_network.road_data[road]["length"]
             ideal_speed = self.road_network.ideal_speeds[road]
-            road_time = (road_length / tickSpeedToKmh(ideal_speed)) * 60
-            # print(road,road_length,ideal_speed,road_time)
+            road_time = road_length / tickSpeedToKmh(ideal_speed)
             ideal_total_time += road_time
         
         return ideal_total_time
@@ -268,122 +269,134 @@ class Navigator:
         return id
     
     def initVehicles(self, num_of_evacuees, start_node):
-        # Return empty list if start node is the evacuation point
+        # Return empty list if start node is the evacuation point or no evacuees
         if start_node == self.road_network.evacNode: return []
-        # Return empty list if no evacuees
-        if num_of_evacuees < 0 : return []
         
         vehicle_ids = []
-        
+
         path = self.road_network.getPathFromNode(start_node)
         path_length = self.__getPathLength(path)
         vehicle_type = "car" if path_length > self._max_walking_distance else "walking"
-        # # print("Vehicle-type-determined:",vehicle_type)
+        
         # Handle walking
         if vehicle_type == "walking":
             for i in range(num_of_evacuees):
-                id = self.__vehicleInit(start_node,"walking",path)
+                id = self.__vehicleInit(start_node, "walking", path)
                 self.vehicle_states[id]["people"] = 1
                 self.vehicle_states[id]["distance_left"] = path_length
                 vehicle_ids.append(id)
-            
+                # Add to new vehicles list for NetLogo with vehicle type
+                self.new_vehicles.append((id, start_node, 1, "walking"))
+
             return vehicle_ids
         
-        # Handle other vehicles
-        # Determine capacity from vehicle type
         if vehicle_type == "car":
             vehicle_capacity = 5
-            
+        
+        # Handle cars (existing vehicle logic)
         num_of_full_vehicles = num_of_evacuees // vehicle_capacity
         remainder = num_of_evacuees % vehicle_capacity
         
-        # Init full vehicles
+        # Initialize full vehicles
         for i in range(num_of_full_vehicles):
-            id = self.__vehicleInit(start_node,"car",path)
+            id = self.__vehicleInit(start_node, "car", path)
             self.vehicle_states[id]["people"] = vehicle_capacity
             self.vehicle_states[id]["distance_left"] = path_length
             self.total_in_cars += vehicle_capacity
             vehicle_ids.append(id)
-        # Init final vehicle with remainder    
+            # Add to new vehicles list for NetLogo with vehicle type
+            self.new_vehicles.append((id, start_node, vehicle_capacity, "car"))
+        
+        # Initialize final vehicle with remainder
         if remainder > 0:
-            id = self.__vehicleInit(start_node,"car",path)
+            id = self.__vehicleInit(start_node, "car", path)
             self.vehicle_states[id]["people"] = remainder
             self.vehicle_states[id]["distance_left"] = path_length
             self.total_in_cars += remainder
             vehicle_ids.append(id)
-        # Return all ids
+            # Add to new vehicles list for NetLogo with vehicle type
+            self.new_vehicles.append((id, start_node, remainder, "car"))
+        
         return vehicle_ids
+    
+    def getNewVehicles(self):
+        """Return and clear the list of newly created vehicles"""
+        new_vehicles = self.new_vehicles.copy()
+        self.new_vehicles = []  # Clear the list after returning
+        return new_vehicles
     
     def updateVehicles(self, tick_count):
         self._current_tick = tick_count
-        # print("t =",tick_count * _tick_time_mins)
         for vehicle_id in self.vehicle_states.keys():
-            # Update vehicle speed
-            # Speed = km/tick
-            # print("===VEHICLE:"+str(vehicle_id)+"===")
             road = self.vehicle_states[vehicle_id]["road"]
-            # Increment actual time
-            # self.vehicle_states[vehicle_id]["actual_time"] += _tick_time_mins
-            # print("ON-ROAD:",road)
-            # print("VEHICLE-TYPE:",self.vehicle_states[vehicle_id]["vehicle_type"])
+            #self.vehicle_states[vehicle_id]["actual_time"] += _tick_time_mins
             if self.vehicle_states[vehicle_id]["vehicle_type"] == "car":
                 self.vehicle_states[vehicle_id]["speed"] = self.__getCarSpeed(self.vehicle_states[vehicle_id]["speed"], road)
-            # print("ROAD SPEED:", self.road_network.road_data[road]["max_speed"])
-            # print("VEHICLE SPEED:",self.vehicle_states[vehicle_id]["speed"])
-            # print("ROAD-LEN:",self.road_network.road_data[road]["length"])
-            # Update vehicle travel distance
-            # Distance travelled in tick = speed
+            
             self.vehicle_states[vehicle_id]["length_travelled"] += self.vehicle_states[vehicle_id]["speed"]
             self.vehicle_states[vehicle_id]["distance_left"] -= self.vehicle_states[vehicle_id]["speed"]
-            # Check if moved onto next road
             d_until_road_end = self.road_network.road_data[road]["length"] - self.vehicle_states[vehicle_id]["length_travelled"]
-            # Check if within range to terminate
             if self.vehicle_states[vehicle_id]["distance_left"] <= self._terminate_distance:
                 self.__terminateJourney(vehicle_id)
-            # If moved onto next road
+            
             while d_until_road_end <= 0 and self.vehicle_states[vehicle_id]["distance_left"] > self._terminate_distance:
-                # IF BEYOND EVAC POINT, ROUTE IS FINISHED SO MARK AS FINISHED JOURNEY
-                # print(road[1], self.road_network.evacNode, road[1] == self.road_network.evacNode)
                 if road[1] == self.road_network.evacNode or self.vehicle_states[vehicle_id]["distance_left"] <= self._terminate_distance:
-                    # print("VEHICLE",vehicle_id,"FINISHED ROUTE")
                     self.__terminateJourney(vehicle_id)
                     break
-                # Move off old road
                 if self.vehicle_states[vehicle_id]["vehicle_type"] == "car":
                     self.road_network.road_data[road]["cars"] -= 1
-                # Calc % of tick spend moving in old road
-                # print("--MOVE-ONTO-NEW_ROAD--")
                 d_in_old_road = self.vehicle_states[vehicle_id]["speed"] + d_until_road_end
                 t_in_old_road = d_in_old_road / self.vehicle_states[vehicle_id]["speed"]
-                # print("T_OLD_ROAD:",t_in_old_road)
-                # Move onto next road
                 road = self.__getNextRoad(vehicle_id)
                 self.vehicle_states[vehicle_id]["road"] = road
                 if self.vehicle_states[vehicle_id]["vehicle_type"] == "car":
                     self.road_network.road_data[road]["cars"] += 1
-                # Calc distance travelled on new road
                 t_in_new_road = 1 - t_in_old_road
-                # print("T-NEW_ROAD:",t_in_new_road)
-                # print("NEW-ROAD:",road)
-                # print("NEW-ROAD-LEN:",self.road_network.road_data[road]["length"])
-                # print("NEW-ROAD-SPEED:",self.road_network.road_data[road]["max_speed"])
                 if self.vehicle_states[vehicle_id]["vehicle_type"] == "car":
                     self.vehicle_states[vehicle_id]["speed"] = self.__getCarSpeed(self.vehicle_states[vehicle_id]["speed"], road)
-                # print("NEW-SPEED",self.vehicle_states[vehicle_id]["speed"])
                 self.vehicle_states[vehicle_id]["length_travelled"] = t_in_new_road * self.vehicle_states[vehicle_id]["speed"]
-                # print("NEW-DISTANCE-TRAVELLED:",self.vehicle_states[vehicle_id]["length_travelled"])
                 d_until_road_end = self.road_network.road_data[road]["length"] - self.vehicle_states[vehicle_id]["length_travelled"]
-                # print("\n")
             
-        # Delete all vehicles which have finished
-        # print("N.o. vehicles:",len(self.vehicle_states))
         for vehicle_id in self.vehicles_to_delete:
             del self.vehicle_states[vehicle_id]
         self.prev_deleted = self.vehicles_to_delete[:]
         self.vehicles_to_delete = []
+        
+    def getCarPositions(self):
+        """
+        Get current positions and states of all vehicles.
+        Returns a list of tuples: (car_id, current_node_id, next_node_id, status, vehicle_type)
+        """
+        positions = []
+        for vehicle_id, state in self.vehicle_states.items():
+            current_road = state["road"]
+            current_node = current_road[0]
+            
+            # Get the next node from the path
+            path = state["path"]
+            current_index = path.index(current_node)
+            next_node = "none" if current_index >= len(path) - 1 else path[current_index + 1]
+            
+            # Determine status
+            if state["distance_left"] <= self._terminate_distance:
+                status = "completed"
+            elif state["vehicle_type"] == "walking":
+                status = "walking"
+            else:
+                status = "active"
+                
+            # Include vehicle type in position update
+            positions.append((
+                vehicle_id, 
+                current_node, 
+                next_node, 
+                status, 
+                state["vehicle_type"]
+            ))
+            
+        return positions
     
     def exportJourneyMetrics(self, initial_people, evacuation_prob, tick_time, interval_time, filename=None):
-        """Export journey metrics to a CSV file with parameters in the filename"""
         if filename is None:
             filename = 'jm_'
             filename += f'_p{initial_people}'
@@ -394,7 +407,6 @@ class Navigator:
             filename += f'_interval{interval_time}'  
             filename += '.csv'
         
-        # Check if file already exists, append a unique number if so
         base, ext = os.path.splitext(filename)
         i = 1
         while os.path.exists(filename):
@@ -435,22 +447,3 @@ class Navigator:
         return 0
         
 
-# Example usage
-# def main():
-    
-#     # with fiona.open("./data/SW_RoadNode.shp") as shapefile:
-#     #     for n in shapefile:
-#     #         # print(n)
-    
-#     evac_point = "627448CE-0C7F-4DA1-A3A5-8FD22F0FC07E"
-#     nav = Navigator(evac_point)
-#     #nav.initVehicles(1,"F9880B09-CE9B-4C9C-AE5E-29FA6214424E")
-#     nav.initVehicles(5,"B5D7B9D7-9121-4FDA-99F7-B576A9669395")
-#     tick = 0
-#     while len(nav.vehicle_states) > 0:
-#         nav.updateVehicles(tick)
-#         tick += 1
-#     # print(nav.journey_metrics)
-
-# if __name__ == "__main__":
-#     main()
